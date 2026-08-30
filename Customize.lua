@@ -317,6 +317,18 @@ Customize.WeaponCategories = {
     { weapon = 'weapon_metaldetector',     label = 'Metal Detector',       category = 'Misc' },
 }
 
+-- Weapon Framing
+-- The weapon camera auto-fits each weapon from its model bounding box.
+-- minExtent keeps relative scale between weapons: anything shorter than this
+-- (meters) is framed as if it were this long, so a pistol renders visibly
+-- smaller than a rifle instead of both filling the frame. Set to 0 to make
+-- every weapon fill the frame. margin adds padding around the weapon
+-- (1.0 = edge-to-edge).
+Customize.WeaponFraming = {
+    minExtent = 0.65,
+    margin    = 1.15,
+}
+
 -- Green Screen (Weapons) — small, weapon floats at studio height
 Customize.WeaponGreenScreen = {
     width       = 8.0,
