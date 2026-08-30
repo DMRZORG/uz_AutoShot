@@ -319,14 +319,16 @@ Customize.WeaponCategories = {
 
 -- Weapon Framing
 -- The weapon camera auto-fits each weapon from its model bounding box.
--- minExtent keeps relative scale between weapons: anything shorter than this
--- (meters) is framed as if it were this long, so a pistol renders visibly
--- smaller than a rifle instead of both filling the frame. Set to 0 to make
--- every weapon fill the frame. margin adds padding around the weapon
--- (1.0 = edge-to-edge).
+-- refExtent : weapons this long (meters) or longer fill the frame.
+-- scalePower: how much relative size is kept for shorter weapons.
+--             1.0 = true relative scale (pistol looks tiny next to a rifle),
+--             0.0 = every weapon fills the frame,
+--             0.5 = compromise — a pistol fills ~60% while rifles fill 100%.
+-- margin    : padding around the weapon (1.0 = edge-to-edge).
 Customize.WeaponFraming = {
-    minExtent = 0.65,
-    margin    = 1.15,
+    refExtent  = 0.65,
+    scalePower = 0.5,
+    margin     = 1.15,
 }
 
 -- Green Screen (Weapons) — small, weapon floats at studio height

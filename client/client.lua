@@ -762,16 +762,26 @@ end
 -- Weapon world models vary hugely in size (knife -> RPG) and their origin
 -- sits at the grip, not the middle. Frame from the model's bounding box:
 -- aim at the box center and pick the distance where the longest extent
--- fills the (square-cropped) frame at the given fov. minExtent keeps the
--- relative scale between weapons (see Customize.WeaponFraming) — without
--- it a pistol would render as large as a rifle.
+-- fills the (square-cropped) frame at the given fov. Weapons shorter than
+-- refExtent are compressed toward filling the frame via scalePower (see
+-- Customize.WeaponFraming): true relative scale makes pistols read as tiny
+-- next to rifles, full fill makes them read as equal — 0.5 sits between.
 local function GetWeaponFraming(obj, fov)
     local cfg = Customize.WeaponFraming or {}
     local min, max = GetModelDimensions(GetEntityModel(obj))
     local size = max - min
     local center = GetOffsetFromEntityInWorldCoords(obj,
         (min.x + max.x) * 0.5, (min.y + max.y) * 0.5, (min.z + max.z) * 0.5)
-    local extent = math.max(size.x, size.y, size.z, cfg.minExtent or 0.0)
+
+    local actual = math.max(size.x, size.y, size.z)
+    local ref    = cfg.refExtent or cfg.minExtent or 0.65
+    local power  = cfg.scalePower or 0.5
+    local extent = actual
+    if actual < ref and power > 0 then
+        -- fraction of the frame this weapon should fill: (actual/ref)^power
+        extent = actual / ((actual / ref) ^ power)
+    end
+
     local dist = (extent * 0.5) / math.tan(math.rad((fov or 25.0) * 0.5)) * (cfg.margin or 1.15)
     return center, math.max(dist, 0.3)
 end
