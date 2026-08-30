@@ -1,8 +1,8 @@
 # uz_AutoShot
 
-**All-in-one screenshot studio for FiveM. Captures clothing, props, vehicles, world objects, and appearance overlays with transparent backgrounds.**
+**All-in-one screenshot studio for FiveM. Captures clothing, props, vehicles, world objects, weapons, and appearance overlays with transparent backgrounds.**
 
-Iterates every drawable and texture automatically, runs chroma key removal server-side, and serves the results in an in-game browser. No external tools needed.
+Iterates every drawable and texture automatically, runs chroma key removal server-side, encodes everything to WebP (with alpha), and serves the results in an in-game browser. No external tools needed.
 
 <img src="uz-autoshot-preview.png" width="800" alt="uz_AutoShot Preview"/>
 
@@ -37,12 +37,14 @@ Iterates every drawable and texture automatically, runs chroma key removal serve
 - **Head overlays**: 12 categories including facial hair, eyebrows, makeup, blemishes, ageing, blush, complexion, lipstick, moles, chest hair.
 - **Vehicle capture**: auto-detects every loaded vehicle model and groups by class. Built-in primary / secondary color picker before each batch.
 - **Object capture**: configurable list of world props in `Customize.lua`. Edit the table or use a one-off command.
+- **Weapon capture**: configurable weapon list grouped by class (melee, handguns, SMGs, rifles, ...). Weapon world models are spawned frozen mid-air and shot in profile.
+- **WebP output**: all images are encoded to WebP server-side by default — including transparent chroma-keyed shots, since WebP carries an alpha channel. `png` and `jpg` remain available via `Customize.ScreenshotFormat`.
 - **Orbit camera**: rotate, roll, zoom, height, FOV. Save framing per category mid-session, copy current values to clipboard in Lua format.
 - **Server-side chroma key**: magenta or green background removal in Node with despill and 5x5 alpha feather for smooth edges.
 - **Wardrobe browser**: `/wardrobe` opens a thumbnail grid with category sidebar, drawable-id search, and click-to-apply preview on your ped.
 - **Re-capture broken thumbnails**: select bad shots in the wardrobe, re-shoot only those without re-running the entire batch.
 - **Pause and resume**: long capture sessions can be paused mid-batch (default Space) and resumed without losing progress.
-- **Quick capture commands**: `/shotcar <model>` and `/shotprop <model>` skip the UI for one-off captures.
+- **Quick capture commands**: `/shotcar <model>`, `/shotprop <model>`, and `/shotweapon <weapon_name>` skip the UI for one-off captures.
 - **Cross-resource integration**: server exports return `cfx-nui` photo URLs that any other resource's NUI can render with `<img src="...">`. No HTTP, no port forwarding, no base64.
 - **Configurable head chroma mask**: stack multiple spheres on `SKEL_Head` to wipe the head out for accessory and torso shots without clipping the clothing.
 
@@ -85,6 +87,7 @@ Type `/shotmaker`, pick what you want to capture, frame the orbit camera, hit St
 | `/wardrobe` | Browse captured thumbnails. Apply items to your ped, re-shoot broken ones. |
 | `/shotcar <model>` | Capture a single vehicle by spawn name. Skips the full UI. |
 | `/shotprop <model>` | Capture a single world object by model name. |
+| `/shotweapon <weapon_name>` | Capture a single weapon (e.g. `weapon_pistol`; the `weapon_` prefix is optional). |
 
 Both `/shotmaker` and `/wardrobe` use the names from `Customize.Command` and `Customize.MenuCommand`, change them there if you want different command names.
 
@@ -97,6 +100,7 @@ add_ace identifier.license:YOUR_LICENSE command.shotmaker allow
 add_ace identifier.license:YOUR_LICENSE command.wardrobe allow
 add_ace identifier.license:YOUR_LICENSE command.shotcar allow
 add_ace identifier.license:YOUR_LICENSE command.shotprop allow
+add_ace identifier.license:YOUR_LICENSE command.shotweapon allow
 ```
 
 Or grant the whole admin group:
@@ -112,7 +116,7 @@ When `AceRestricted = true`, the server also rejects any capture event from a pl
 
 ## Camera controls
 
-The orbit camera is active during the preview step before each capture session and during single-shot captures (`/shotcar`, `/shotprop`).
+The orbit camera is active during the preview step before each capture session and during single-shot captures (`/shotcar`, `/shotprop`, `/shotweapon`).
 
 | Key | Action |
 |-----|--------|
@@ -137,8 +141,8 @@ All settings live in [`Customize.lua`](Customize.lua). Common knobs:
 | `Customize.Command` | `'shotmaker'` | Capture command name |
 | `Customize.MenuCommand` | `'wardrobe'` | Browser command name |
 | `Customize.AceRestricted` | `false` | Require ACE permission for commands and capture events |
-| `Customize.ScreenshotFormat` | `'png'` | Output format: `'png'`, `'webp'`, or `'jpg'` |
-| `Customize.TransparentBg` | `true` | Chroma key removal (PNG only) |
+| `Customize.ScreenshotFormat` | `'webp'` | Output format: `'webp'`, `'png'`, or `'jpg'`. WebP keeps transparency; transparent jpg captures fall back to png on disk |
+| `Customize.TransparentBg` | `true` | Chroma key removal (webp/png) |
 | `Customize.ScreenshotWidth` | `512` | Output image width |
 | `Customize.ScreenshotHeight` | `512` | Output image height |
 | `Customize.CaptureAllTextures` | `false` | Capture all texture variants (not just default) |
@@ -146,7 +150,7 @@ All settings live in [`Customize.lua`](Customize.lua). Common knobs:
 | `Customize.BatchSize` | `10` | Captures per batch before cooldown |
 | `Customize.LatentRate` | `8000000` | Bytes/sec throttle for capture uploads |
 
-Camera presets, studio lighting, green screen dimensions, the head chroma mask (`Customize.HeadMask`), clothing/prop/overlay categories, and the object list are also configurable in the same file. Full reference at [uz-scripts.com/docs/free/uz-autoshot](https://uz-scripts.com/docs/free/uz-autoshot).
+Camera presets, studio lighting, green screen dimensions, the head chroma mask (`Customize.HeadMask`), clothing/prop/overlay categories, and the object and weapon lists are also configurable in the same file. Full reference at [uz-scripts.com/docs/free/uz-autoshot](https://uz-scripts.com/docs/free/uz-autoshot).
 
 ---
 
@@ -156,25 +160,28 @@ The URL exports return `cfx-nui` paths that any NUI in any resource can render d
 
 ```lua
 exports['uz_AutoShot']:getPhotoURL('male', 'component', 11, 5, 0)
--- 'https://cfx-nui-uz_AutoShot/shots/male/11/5_0.png'
+-- 'https://cfx-nui-uz_AutoShot/shots/male/11/5_0.webp'
 
 exports['uz_AutoShot']:getPhotoURL('male', 'prop', 0, 12, 0)
--- 'https://cfx-nui-uz_AutoShot/shots/male/prop_0/12_0.png'
+-- 'https://cfx-nui-uz_AutoShot/shots/male/prop_0/12_0.webp'
 
 exports['uz_AutoShot']:getPhotoURL('male', 'overlay', 1, 3, 0)
--- 'https://cfx-nui-uz_AutoShot/shots/male/overlay_1/3.png'
+-- 'https://cfx-nui-uz_AutoShot/shots/male/overlay_1/3.webp'
 
 exports['uz_AutoShot']:getVehiclePhotoURL('adder')
--- 'https://cfx-nui-uz_AutoShot/shots/vehicles/adder.png'
+-- 'https://cfx-nui-uz_AutoShot/shots/vehicles/adder.webp'
 
 exports['uz_AutoShot']:getObjectPhotoURL('prop_bench_01a')
--- 'https://cfx-nui-uz_AutoShot/shots/objects/prop_bench_01a.png'
+-- 'https://cfx-nui-uz_AutoShot/shots/objects/prop_bench_01a.webp'
+
+exports['uz_AutoShot']:getWeaponPhotoURL('weapon_pistol')
+-- 'https://cfx-nui-uz_AutoShot/shots/weapons/weapon_pistol.webp'
 
 exports['uz_AutoShot']:getShotsBaseURL()
 -- 'https://cfx-nui-uz_AutoShot/shots'
 
 exports['uz_AutoShot']:getPhotoFormat()
--- 'png'  (whatever Customize.ScreenshotFormat is set to)
+-- 'webp'  (the extension actually written to disk, derived from Customize.ScreenshotFormat)
 ```
 
 `getPhotoURL(gender, itemType, id, drawable, texture)` arguments:
@@ -202,23 +209,26 @@ Overlays never use a texture suffix.
 shots/
 ├── male/
 │   ├── 2/                 # Hair (componentId 2)
-│   │   ├── 0.png          # default: <drawable>.png
-│   │   └── 1.png
+│   │   ├── 0.webp         # default: <drawable>.webp
+│   │   └── 1.webp
 │   ├── 11/                # Tops (componentId 11)
-│   │   ├── 5.png          # default
-│   │   └── 5_2.png        # only when CaptureAllTextures = true
+│   │   ├── 5.webp         # default
+│   │   └── 5_2.webp       # only when CaptureAllTextures = true
 │   ├── prop_0/            # Hats (propId 0)
-│   │   └── 0.png
+│   │   └── 0.webp
 │   └── overlay_1/         # Facial Hair (overlayIndex 1)
-│       ├── 0.png
-│       └── 1.png
+│       ├── 0.webp
+│       └── 1.webp
 ├── female/
 │   └── ...
 ├── vehicles/
-│   ├── adder.png
+│   ├── adder.webp
 │   └── ...
-└── objects/
-    ├── prop_bench_01a.png
+├── objects/
+│   ├── prop_bench_01a.webp
+│   └── ...
+└── weapons/
+    ├── weapon_pistol.webp
     └── ...
 ```
 

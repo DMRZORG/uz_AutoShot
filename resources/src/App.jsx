@@ -128,10 +128,10 @@ export default function App() {
     const cat = categories[activeCatIdx]
     if (!cat) return
     const arr = []
-    if (cat.type === 'vehicle' && cat.models) {
-      // Vehicle class — each model in the class becomes an item
+    if ((cat.type === 'vehicle' || cat.type === 'weapon') && cat.models) {
+      // Vehicle class / weapon group — each model becomes an item
       cat.models.forEach((model, idx) => {
-        arr.push({ type: 'vehicle', id: model, gender: 'unisex', drawable: idx, texture: 0, label: model, model })
+        arr.push({ type: cat.type, id: model, gender: 'unisex', drawable: idx, texture: 0, label: model, model })
       })
     } else if (cat.type === 'object') {
       arr.push({ type: cat.type, id: cat.id, gender: 'unisex', drawable: 0, texture: 0, label: cat.label, model: cat.id })
@@ -192,13 +192,15 @@ export default function App() {
     const sc = chosen.filter(c => c.type === 'component').map(c => c.id)
     const sp = chosen.filter(c => c.type === 'prop').map(c => c.id)
     const sl = chosen.filter(c => c.type === 'overlay').map(c => c.id)
-    // Vehicles/objects now send individual model name arrays
+    // Vehicles/objects/weapons now send individual model name arrays
     const vehEntry = chosen.find(c => c.type === 'vehicle' && c.models)
     const objEntry = chosen.find(c => c.type === 'object' && c.models)
+    const wpnEntry = chosen.find(c => c.type === 'weapon' && c.models)
     const sv = vehEntry?.models || []
     const so = objEntry?.models || []
+    const sw = wpnEntry?.models || []
     setPreviewing(false)
-    fetchNUI('startCapture', { selectedComponents: sc, selectedProps: sp, selectedOverlays: sl, selectedVehicles: sv, selectedObjects: so })
+    fetchNUI('startCapture', { selectedComponents: sc, selectedProps: sp, selectedOverlays: sl, selectedVehicles: sv, selectedObjects: so, selectedWeapons: sw })
   }, [])
 
   const handlePreviewActiveChange = useCallback((cat) => {
@@ -330,7 +332,7 @@ export default function App() {
 
   // Single entity preview (shotcar / shotprop)
   if (singleEntityPreview) {
-    const Icon = singleEntityPreview.entityType === 'vehicle' ? (CAT_TYPE_ICON.vehicle) : (CAT_TYPE_ICON.object)
+    const Icon = CAT_TYPE_ICON[singleEntityPreview.entityType] ?? CAT_TYPE_ICON.object
     return (
       <div className="fixed inset-0 z-[9998] cursor-grab active:cursor-grabbing"
         onMouseDown={handleOrbitDown} onMouseMove={handleOrbitMove}

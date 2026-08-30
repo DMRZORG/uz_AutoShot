@@ -11,7 +11,7 @@ import {
   Eye, Camera, Check, Play, Search, X,
   Shirt, HardHat, Glasses, Watch, Footprints, ShoppingBag,
   Shield, Paintbrush, Ear, Gem,
-  Car, Box, User, Palette, ChevronRight, ChevronDown, RotateCcw,
+  Car, Box, User, Palette, ChevronRight, ChevronDown, RotateCcw, Crosshair,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Switch }     from './ui/switch'
@@ -31,7 +31,7 @@ export const CAT_ICON_MAP = {
   'Chest Hair': User, 'Body Blemishes': Paintbrush,
 }
 export const CAT_TYPE_ICON = {
-  'component': Shirt, 'prop': HardHat, 'overlay': Paintbrush, 'vehicle': Car, 'object': Box,
+  'component': Shirt, 'prop': HardHat, 'overlay': Paintbrush, 'vehicle': Car, 'object': Box, 'weapon': Crosshair,
 }
 
 // ── Tabs ────────────────────────────────────────────────
@@ -40,6 +40,7 @@ const TABS = [
   { id: 'appearance', label: 'Appearance', icon: Paintbrush, types: ['overlay'] },
   { id: 'cars',       label: 'Cars',       icon: Car,        types: ['vehicle'] },
   { id: 'objects',    label: 'Objects',    icon: Box,        types: ['object'] },
+  { id: 'weapons',    label: 'Weapons',    icon: Crosshair,  types: ['weapon'] },
 ]
 
 // ── Vehicle Colors ──────────────────────────────────────
@@ -95,6 +96,7 @@ const BrowseThumb = React.memo(({ item, isSelected, onClick, ext, recaptureMode,
   const texSuffix = item.texture > 0 ? `_${item.texture}` : ''
   const thumbName = item.type === 'vehicle' ? `vehicles/${item.model || item.id}.${ext}`
     : item.type === 'object' ? `objects/${item.model || item.id}.${ext}`
+    : item.type === 'weapon' ? `weapons/${item.model || item.id}.${ext}`
     : item.type === 'overlay' ? `${item.gender}/overlay_${item.id}/${item.drawable}.${ext}`
     : item.type === 'prop' ? `${item.gender}/prop_${item.id}/${item.drawable}${texSuffix}.${ext}`
     : `${item.gender}/${item.id}/${item.drawable}${texSuffix}.${ext}`
@@ -175,6 +177,11 @@ export function CapturePreview({
   const [selectedObjects, setSelectedObjects] = useState(() => new Set())
   const [objectSearch, setObjectSearch]       = useState('')
 
+  // ── Weapons tab state ─────────────────────────────
+  const [expandedWeaponClasses, setExpandedWeaponClasses] = useState(() => new Set())
+  const [selectedWeapons, setSelectedWeapons] = useState(() => new Set())
+  const [weaponSearch, setWeaponSearch]       = useState('')
+
   // ── Browse mode state ──────────────────────────────
   const [recaptureMode, setRecaptureMode] = useState(false)
   const [recaptureSet, setRecaptureSet]   = useState(new Set())
@@ -225,6 +232,7 @@ export function CapturePreview({
   const overlayCategories = useMemo(() => categories.filter(c => c.type === 'overlay'), [categories])
   const vehicleClasses = useMemo(() => categories.filter(c => c.type === 'vehicle' && c.models), [categories])
   const objectCategories = useMemo(() => categories.filter(c => c.type === 'object'), [categories])
+  const weaponClasses = useMemo(() => categories.filter(c => c.type === 'weapon' && c.models), [categories])
 
   // All vehicle models flat
   const allVehicleModels = useMemo(() => {
@@ -250,19 +258,38 @@ export function CapturePreview({
     return objectCategories.filter(c => c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
   }, [objectCategories, objectSearch])
 
+  // All weapon models flat
+  const allWeaponModels = useMemo(() => {
+    const all = []
+    weaponClasses.forEach(wc => { wc.models?.forEach(m => all.push({ model: m, className: wc.label })) })
+    return all
+  }, [weaponClasses])
+
+  // Filtered weapons by search
+  const filteredWeaponClasses = useMemo(() => {
+    if (!weaponSearch.trim()) return weaponClasses
+    const q = weaponSearch.trim().toLowerCase()
+    return weaponClasses.map(wc => ({
+      ...wc,
+      models: wc.models.filter(m => m.toLowerCase().includes(q)),
+    })).filter(wc => wc.models.length > 0)
+  }, [weaponClasses, weaponSearch])
+
   // Counts
   const pedSelectedCount = useMemo(() => pedCategories.filter(c => selected.has(c.key)).length, [pedCategories, selected])
   const overlaySelectedCount = useMemo(() => overlayCategories.filter(c => selected.has(c.key)).length, [overlayCategories, selected])
   const vehicleSelectedCount = selectedModels.size
   const objectSelectedCount = selectedObjects.size
-  const totalSelected = pedSelectedCount + overlaySelectedCount + vehicleSelectedCount + objectSelectedCount
+  const weaponSelectedCount = selectedWeapons.size
+  const totalSelected = pedSelectedCount + overlaySelectedCount + vehicleSelectedCount + objectSelectedCount + weaponSelectedCount
 
   const tabCounts = useMemo(() => ({
     ped: pedSelectedCount,
     appearance: overlaySelectedCount,
     cars: vehicleSelectedCount,
     objects: objectSelectedCount,
-  }), [pedSelectedCount, overlaySelectedCount, vehicleSelectedCount, objectSelectedCount])
+    weapons: weaponSelectedCount,
+  }), [pedSelectedCount, overlaySelectedCount, vehicleSelectedCount, objectSelectedCount, weaponSelectedCount])
 
   // ── Ped handlers ──────────────────────────────────
   const handlePedToggle = useCallback((key) => {
@@ -327,9 +354,29 @@ export function CapturePreview({
   const objectSelectAll  = useCallback(() => setSelectedObjects(new Set(objectCategories.map(c => c.id))), [objectCategories])
   const objectSelectNone = useCallback(() => setSelectedObjects(new Set()), [])
 
-  // ── Camera save for vehicle/object ─────────────────
+  // ── Weapon handlers ───────────────────────────────
+  const toggleWeaponClass = useCallback((cls) => {
+    setExpandedWeaponClasses(prev => { const n = new Set(prev); n.has(cls) ? n.delete(cls) : n.add(cls); return n })
+  }, [])
+
+  const toggleWeapon = useCallback((model) => {
+    setSelectedWeapons(prev => { const n = new Set(prev); n.has(model) ? n.delete(model) : n.add(model); return n })
+  }, [])
+
+  const toggleAllInWeaponClass = useCallback((models, selectAll) => {
+    setSelectedWeapons(prev => {
+      const n = new Set(prev)
+      models.forEach(m => selectAll ? n.add(m) : n.delete(m))
+      return n
+    })
+  }, [])
+
+  const weaponSelectAll  = useCallback(() => setSelectedWeapons(new Set(allWeaponModels.map(w => w.model))), [allWeaponModels])
+  const weaponSelectNone = useCallback(() => setSelectedWeapons(new Set()), [])
+
+  // ── Camera save for vehicle/object/weapon ──────────
   const handleSaveEntityAngle = useCallback(() => {
-    const cam = activeTab === 'cars' ? 'vehicle' : 'object'
+    const cam = activeTab === 'cars' ? 'vehicle' : activeTab === 'weapons' ? 'weapon' : 'object'
     onSaveAngle?.(cam)
     setSavedCameras(prev => { const n = new Set(prev); n.add(cam); return n })
   }, [activeTab, onSaveAngle])
@@ -352,8 +399,10 @@ export function CapturePreview({
     if (selectedModels.size > 0) chosen.push({ type: 'vehicle', id: '__models__', models: Array.from(selectedModels) })
     // Object models
     if (selectedObjects.size > 0) chosen.push({ type: 'object', id: '__models__', models: Array.from(selectedObjects) })
+    // Weapon models
+    if (selectedWeapons.size > 0) chosen.push({ type: 'weapon', id: '__models__', models: Array.from(selectedWeapons) })
     onStart?.(chosen)
-  }, [pedCategories, overlayCategories, selected, selectedModels, selectedObjects, totalSelected, onStart])
+  }, [pedCategories, overlayCategories, selected, selectedModels, selectedObjects, selectedWeapons, totalSelected, onStart])
 
   const isBrowse = mode === 'browse'
 
@@ -396,6 +445,7 @@ export function CapturePreview({
               const hasItems = tab.id === 'ped' ? pedCategories.length > 0
                 : tab.id === 'appearance' ? overlayCategories.length > 0
                 : tab.id === 'cars' ? vehicleClasses.length > 0
+                : tab.id === 'weapons' ? weaponClasses.length > 0
                 : objectCategories.length > 0
               if (!hasItems) return null
               return (
@@ -807,6 +857,103 @@ export function CapturePreview({
                       <span style={{ fontSize: 7, color: '#444' }}>{obj.id}</span>
                     </div>
                   ))}
+                </div>
+              </ScrollArea>
+            </div>
+          </>
+        )}
+
+        {/* ═══ WEAPONS TAB ═══ */}
+        {activeTab === 'weapons' && (
+          <>
+            {/* Search */}
+            <div style={{ padding: '8px 20px 6px' }}>
+              <div className="flex items-center gap-2" style={{ height: 28, borderRadius: 6, padding: '0 8px', background: bg(0.015), border: border(0.04) }}>
+                <Search style={{ width: 10, height: 10, color: '#444', flexShrink: 0 }} />
+                <input value={weaponSearch} onChange={e => setWeaponSearch(e.target.value)}
+                  placeholder="Search weapons..." style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 10, color: '#ccc', caretColor: '#888' }} />
+                {weaponSearch && (
+                  <button onClick={() => setWeaponSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                    <X style={{ width: 9, height: 9, color: '#555' }} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.04)' }} />
+
+            {/* All/None + count + camera save */}
+            <div className="flex items-center justify-between" style={{ padding: '6px 20px 4px' }}>
+              <span style={{ fontSize: 10, color: '#555' }}>
+                <span style={{ color: '#999', fontWeight: 600 }}>{weaponSelectedCount}</span> / {allWeaponModels.length} weapons
+              </span>
+              <div className="flex items-center gap-1.5">
+                <div onClick={handleSaveEntityAngle} title="Save camera angle for all weapons"
+                  className="flex items-center justify-center cursor-pointer hover:bg-white/[0.06]"
+                  style={{ width: 20, height: 20, borderRadius: 4, flexShrink: 0 }}>
+                  <Camera style={{ width: 10, height: 10, color: savedCameras.has('weapon') ? '#22c55e' : '#666' }} />
+                </div>
+                <span style={{ fontSize: 10, color: '#333' }}>|</span>
+                <button onClick={weaponSelectAll} style={{ fontSize: 10, color: '#666', background: 'none', border: 'none', cursor: 'pointer' }}>All</button>
+                <span style={{ fontSize: 10, color: '#333' }}>·</span>
+                <button onClick={weaponSelectNone} style={{ fontSize: 10, color: '#666', background: 'none', border: 'none', cursor: 'pointer' }}>None</button>
+              </div>
+            </div>
+
+            {/* Class accordion */}
+            <div className={isBrowse ? 'flex-1 overflow-hidden' : ''} style={{ padding: '2px 20px 10px' }}>
+              <ScrollArea style={{ height: isBrowse ? '100%' : 240 }}>
+                <div className="flex flex-col gap-0.5">
+                  {filteredWeaponClasses.map(wc => {
+                    const isExpanded = expandedWeaponClasses.has(wc.label) || weaponSearch.trim().length > 0
+                    const classModels = wc.models || []
+                    const selCount = classModels.filter(m => selectedWeapons.has(m)).length
+                    const allSel = selCount === classModels.length && classModels.length > 0
+                    const someSel = selCount > 0
+
+                    return (
+                      <div key={wc.key}>
+                        {/* Class header */}
+                        <div onClick={() => toggleWeaponClass(wc.label)}
+                          className="flex items-center gap-1.5 cursor-pointer select-none transition-all"
+                          style={{
+                            height: 26, padding: '0 6px', borderRadius: 5,
+                            background: isExpanded ? bg(0.03) : 'transparent',
+                            border: isExpanded ? border(0.06) : '1px solid transparent',
+                            opacity: someSel ? 1 : 0.6,
+                          }}>
+                          {isExpanded
+                            ? <ChevronDown style={{ width: 10, height: 10, color: '#666', flexShrink: 0 }} />
+                            : <ChevronRight style={{ width: 10, height: 10, color: '#444', flexShrink: 0 }} />
+                          }
+                          <Crosshair style={{ width: 9, height: 9, color: someSel ? '#888' : '#444', flexShrink: 0 }} />
+                          <span className="flex-1 truncate" style={{ fontSize: 10, fontWeight: 600, color: '#ddd' }}>{wc.label}</span>
+                          <span style={{ fontSize: 8, color: someSel ? '#999' : '#444', fontVariantNumeric: 'tabular-nums' }}>
+                            {selCount}/{classModels.length}
+                          </span>
+                          <Checkbox checked={allSel} onChange={(v) => toggleAllInWeaponClass(classModels, v)} size={13} />
+                        </div>
+
+                        {/* Expanded models */}
+                        {isExpanded && (
+                          <div style={{ paddingLeft: 14, borderLeft: '1px solid rgba(255,255,255,0.04)', marginLeft: 10, marginTop: 1, marginBottom: 2 }}>
+                            {classModels.map(model => (
+                              <div key={model}
+                                onClick={() => {
+                                  toggleWeapon(model)
+                                  onActiveChange?.({ type: 'weapon', id: wc.label, camera: 'weapon', firstModel: model })
+                                }}
+                                className="flex items-center gap-2 cursor-pointer select-none transition-all hover:opacity-100"
+                                style={{ height: 22, padding: '0 6px', borderRadius: 4, opacity: selectedWeapons.has(model) ? 1 : 0.5 }}>
+                                <Checkbox checked={selectedWeapons.has(model)} onChange={() => toggleWeapon(model)} size={12} />
+                                <span className="flex-1 truncate" style={{ fontSize: 9, fontWeight: 400, color: '#ccc' }}>{model}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </ScrollArea>
             </div>

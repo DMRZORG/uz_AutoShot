@@ -27,6 +27,7 @@ const Thumbnail = React.memo(({ item, isSelected, onClick, ext, recaptureMode, r
   const texSuffix = item.texture > 0 ? `_${item.texture}` : ''
   const thumbName = item.type === 'vehicle' ? `vehicles/${item.model || item.id}.${ext}`
     : item.type === 'object' ? `objects/${item.model || item.id}.${ext}`
+    : item.type === 'weapon' ? `weapons/${item.model || item.id}.${ext}`
     : item.type === 'overlay' ? `${item.gender}/overlay_${item.id}/${item.drawable}.${ext}`
     : item.type === 'prop' ? `${item.gender}/prop_${item.id}/${item.drawable}${texSuffix}.${ext}`
     : `${item.gender}/${item.id}/${item.drawable}${texSuffix}.${ext}`
@@ -135,6 +136,7 @@ export function ClothingMenu({
 
   const catSubtitle = activeCat?.type === 'vehicle' ? activeCat?.id
     : activeCat?.type === 'object' ? activeCat?.id
+    : activeCat?.type === 'weapon' ? activeCat?.id
     : activeCat?.type === 'overlay' ? `Overlay · ID ${activeCat?.id}`
     : activeCat?.type === 'prop' ? `Prop · ID ${activeCat?.id}` : `Component · ID ${activeCat?.id}`
 

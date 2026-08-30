@@ -8,7 +8,7 @@ local captureGender     = 'male'
 local captureRotOffset  = 0.0
 local savedCameraAngles = {}
 local activePreviewCamera = nil
-local captureMode       = 'clothing'  -- 'clothing' | 'vehicle' | 'object'
+local captureMode       = 'clothing'  -- 'clothing' | 'vehicle' | 'object' | 'weapon'
 local spawnedEntity     = nil
 local vehicleColor      = { primary = 0, secondary = 0 }
 local entitySpawnToken  = 0  -- increments each spawn request to cancel stale ones
@@ -211,6 +211,9 @@ local function DrawGreenScreenAndLights(entity)
         lights = Customize.VehicleStudioLights or Customize.StudioLights
     elseif captureMode == 'object' then
         gs     = Customize.ObjectGreenScreen or Customize.GreenScreen
+        lights = Customize.StudioLights
+    elseif captureMode == 'weapon' then
+        gs     = Customize.WeaponGreenScreen or Customize.ObjectGreenScreen or Customize.GreenScreen
         lights = Customize.StudioLights
     else
         gs     = Customize.GreenScreen
@@ -434,11 +437,25 @@ end
 -- CAPTURE & UPLOAD
 -- ════════════════════════════════════════════════════════
 
+-- Extension the server actually writes to disk. webp carries an alpha
+-- channel so transparent captures stay webp; jpg can't hold alpha, so
+-- transparent jpg captures are saved as png (mirrors server.js).
+local function GetOutputExt()
+    local format = (Customize.ScreenshotFormat or 'webp'):lower()
+    if Customize.TransparentBg and format ~= 'webp' then return 'png' end
+    return format
+end
+
 local function CaptureAndUpload(filename)
     ForceHighQuality()
 
-    local encoding = Customize.ScreenshotFormat or 'png'
-    if Customize.TransparentBg then encoding = 'png' end
+    local format = (Customize.ScreenshotFormat or 'webp'):lower()
+    -- Chroma keying, resizing and webp encoding all run server-side on raw
+    -- RGBA pixels, so transparent and webp captures are grabbed as a
+    -- lossless png source frame and converted there. Plain jpg stays a
+    -- direct passthrough (never resized), same as before.
+    local needsProcessing = Customize.TransparentBg or format == 'webp'
+    local encoding = needsProcessing and 'png' or format
 
     local opts = { encoding = encoding }
     if encoding ~= 'png' then
@@ -461,7 +478,8 @@ local function CaptureAndUpload(filename)
 
     TriggerLatentServerEvent('uz_autoshot:server:processCapture', Customize.LatentRate or 8000000, {
         filename    = filename,
-        format      = Customize.ScreenshotFormat or 'png',
+        format      = format,
+        quality     = Customize.ScreenshotQuality or 0.92,
         transparent = Customize.TransparentBg and true or false,
         chromaKey   = Customize.ChromaKeyColor or 'green',
         width       = Customize.ScreenshotWidth or 0,
@@ -710,6 +728,83 @@ local function SpawnStudioObject(modelName)
     SetEntityHeading(obj, Customize.StudioHeading)
     spawnedEntity = obj
     return obj
+end
+
+local function SpawnStudioWeapon(weaponName)
+    local hash = GetHashKey(weaponName)
+    if not IsWeaponValid(hash) then return nil end
+
+    RequestWeaponAsset(hash, 31, 0)
+    local timeout = GetGameTimer() + 5000
+    while not HasWeaponAssetLoaded(hash) and GetGameTimer() < timeout do Wait(10) end
+    if not HasWeaponAssetLoaded(hash) then return nil end
+
+    local sx, sy, sz = Customize.StudioCoords.x, Customize.StudioCoords.y, Customize.StudioCoords.z
+
+    local playerPos = GetEntityCoords(PlayerPedId())
+    local obj = CreateWeaponObject(hash, 1, playerPos.x, playerPos.y, playerPos.z, true, 1.0, 0)
+    if not DoesEntityExist(obj) then return nil end
+
+    SetEntityAsMissionEntity(obj, true, true)
+    SetEntityCollision(obj, false, false)
+    FreezeEntityPosition(obj, true)
+
+    -- Teleport to studio — no ground snap: the weapon hangs frozen mid-air
+    -- so the profile shot isn't cut off by the green screen floor.
+    SetEntityCoordsNoOffset(obj, sx, sy, sz, false, false, false)
+    SetEntityRotation(obj, 0.0, 0.0, Customize.StudioHeading, 2, false)
+    FreezeEntityPosition(obj, true)
+    RemoveWeaponAsset(hash)
+    spawnedEntity = obj
+    return obj
+end
+
+-- Weapon world models vary hugely in size (knife -> RPG) and their origin
+-- sits at the grip, not the middle. Frame from the model's bounding box:
+-- aim at the box center and pick the distance where the longest extent
+-- fills the (square-cropped) frame at the given fov, with a slim margin.
+local function GetWeaponFraming(obj, fov)
+    local min, max = GetModelDimensions(GetEntityModel(obj))
+    local size = max - min
+    local center = GetOffsetFromEntityInWorldCoords(obj,
+        (min.x + max.x) * 0.5, (min.y + max.y) * 0.5, (min.z + max.z) * 0.5)
+    local extent = math.max(size.x, size.y, size.z)
+    local dist = (extent * 0.5) / math.tan(math.rad((fov or 25.0) * 0.5)) * 1.15
+    return center, math.max(dist, 0.3)
+end
+
+-- Capture camera for weapons. Direction/fov/roll come from a saved weapon
+-- angle or the live orbit (when the user previewed a weapon last); distance
+-- is always auto-fitted per weapon, scaled by the user's relative zoom so
+-- zooming in the preview still means something across differently sized
+-- weapons.
+local function CreateWeaponCaptureCamera(obj, preset)
+    local saved      = savedCameraAngles['weapon']
+    local orbitIsWpn = activePreviewCamera == 'weapon'
+
+    local fov  = (saved and saved.fov) or (orbitIsWpn and orbitFov > 0 and orbitFov) or preset.fov
+    local aH   = (saved and saved.angleH) or (orbitIsWpn and orbitAngleH) or math.rad(preset.defaultAngleH or 0.0)
+    local roll = (saved and saved.roll) or (orbitIsWpn and orbitRoll) or preset.defaultRoll or 0.0
+    local cZ   = (saved and saved.camZ) or (orbitIsWpn and orbitCamZ) or preset.defaultCamZ or 0.0
+
+    local center, dist = GetWeaponFraming(obj, fov)
+    if orbitIsWpn and orbitBaseDist and orbitBaseDist > 0 then
+        dist = dist * (orbitDist / orbitBaseDist)
+    end
+
+    local camX = center.x + dist * math.sin(aH)
+    local camY = center.y - dist * math.cos(aH)
+    local camZ = center.z + cZ
+
+    local cam = CreateCamWithParams('DEFAULT_SCRIPTED_CAMERA', camX, camY, camZ, 0.0, 0.0, 0.0, fov, false, 0)
+    local dx = center.x - camX
+    local dy = center.y - camY
+    local dz = center.z - camZ
+    local dist2d = math.sqrt(dx * dx + dy * dy)
+    SetCamRot(cam, math.deg(math.atan(dz, dist2d)), roll, -math.deg(math.atan(dx, dy)), 2)
+    SetCamActive(cam, true)
+    RenderScriptCams(true, false, 0, true, true)
+    return cam
 end
 
 local function DeleteStudioEntity()
@@ -1037,6 +1132,54 @@ local function CaptureObjects(selectedSet)
 end
 
 -- ════════════════════════════════════════════════════════
+-- WEAPON CAPTURE LOOP
+-- ════════════════════════════════════════════════════════
+
+local function CaptureWeapons(selectedSet)
+    -- selectedSet contains individual weapon names: { ['weapon_pistol'] = true }
+    local labels = {}
+    for _, cat in ipairs(Customize.WeaponCategories or {}) do
+        labels[cat.weapon:lower()] = cat.label
+    end
+
+    local totalItems, captured = 0, 0
+    local weaponsToCapture = {}
+    for wpn in pairs(selectedSet) do
+        weaponsToCapture[#weaponsToCapture + 1] = wpn
+        totalItems = totalItems + 1
+    end
+    table.sort(weaponsToCapture)
+
+    for _, wpn in ipairs(weaponsToCapture) do
+        if isCancelled then return end
+        WaitForResume()
+        if isCancelled then return end
+
+        DeleteStudioEntity()
+        local obj = SpawnStudioWeapon(wpn)
+        if not obj then goto nextWpn end
+
+        Wait(500)
+
+        local preset = Customize.CameraPresets['weapon']
+        DestroyCamera()
+        captureCamera = CreateWeaponCaptureCamera(obj, preset)
+        Wait(Customize.WaitAfterApply)
+
+        CaptureAndUpload('weapons/' .. wpn)
+
+        captured = captured + 1
+        SendProgress(captured, totalItems, labels[wpn] or wpn)
+
+        DeleteStudioEntity()
+        Wait(Customize.WaitAfterCapture)
+        ThrottledWait()
+
+        ::nextWpn::
+    end
+end
+
+-- ════════════════════════════════════════════════════════
 -- CLEANUP
 -- ════════════════════════════════════════════════════════
 
@@ -1218,6 +1361,22 @@ local function BuildCategoryList(includeDrawables)
     for _, cat in ipairs(Customize.ObjectCategories or {}) do
         categories[#categories + 1] = { type = 'object', id = cat.model, label = cat.label, camera = 'object', drawables = 1 }
     end
+    -- Group weapons by category (same shape as vehicle classes)
+    local wpnGroups, wpnOrder = {}, {}
+    for _, cat in ipairs(Customize.WeaponCategories or {}) do
+        local grp = cat.category or 'Weapons'
+        if not wpnGroups[grp] then
+            wpnGroups[grp] = {}
+            wpnOrder[#wpnOrder + 1] = grp
+        end
+        wpnGroups[grp][#wpnGroups[grp] + 1] = cat.weapon:lower()
+    end
+    for _, grp in ipairs(wpnOrder) do
+        categories[#categories + 1] = {
+            type = 'weapon', id = grp, label = grp, camera = 'weapon',
+            drawables = #wpnGroups[grp], models = wpnGroups[grp],
+        }
+    end
     return categories
 end
 
@@ -1272,7 +1431,7 @@ local function SetupEntityCapturePhase(mode)
     Wait(200)
 end
 
-local function RunCapture(selectedComponents, selectedProps, selectedVehicles, selectedObjects, selectedOverlays)
+local function RunCapture(selectedComponents, selectedProps, selectedVehicles, selectedObjects, selectedOverlays, selectedWeapons)
     captureRotOffset = math.deg(orbitAngleH) - Customize.StudioHeading
     DestroyOrbitCamera()
     DeleteStudioEntity()
@@ -1290,13 +1449,15 @@ local function RunCapture(selectedComponents, selectedProps, selectedVehicles, s
     local overlaySet = {}
     for _, id in ipairs(selectedOverlays or {}) do overlaySet[id] = true end
 
-    local vehSet, objSet = {}, {}
+    local vehSet, objSet, wpnSet = {}, {}, {}
     for _, id in ipairs(selectedVehicles or {}) do vehSet[id] = true end
     for _, id in ipairs(selectedObjects or {}) do objSet[id] = true end
+    for _, id in ipairs(selectedWeapons or {}) do wpnSet[id] = true end
 
     local hasPed = next(compSet) or next(propSet) or next(overlaySet)
     local hasVeh = next(vehSet)
     local hasObj = next(objSet)
+    local hasWpn = next(wpnSet)
 
     SendNUIMessage({ type = 'captureStart' })
     SetNuiFocus(false, false)
@@ -1321,6 +1482,12 @@ local function RunCapture(selectedComponents, selectedProps, selectedVehicles, s
     if hasObj and not isCancelled then
         SetupEntityCapturePhase('object')
         CaptureObjects(objSet)
+    end
+
+    -- ── Phase 4: Weapons ──
+    if hasWpn and not isCancelled then
+        SetupEntityCapturePhase('weapon')
+        CaptureWeapons(wpnSet)
     end
 
     local wasCancelled = isCancelled
@@ -1496,7 +1663,7 @@ local function OpenClothingMenu()
         type       = 'openMenu',
         gender     = captureGender,
         categories = categories,
-        imgExt     = Customize.TransparentBg and 'png' or (Customize.ScreenshotFormat or 'png'),
+        imgExt     = GetOutputExt(),
     })
 end
 
@@ -1507,7 +1674,7 @@ end
 RegisterNUICallback('startCapture', function(data, cb)
     cb('ok')
     if not isPreview then return end
-    CreateThread(function() RunCapture(data.selectedComponents or {}, data.selectedProps or {}, data.selectedVehicles or {}, data.selectedObjects or {}, data.selectedOverlays or {}) end)
+    CreateThread(function() RunCapture(data.selectedComponents or {}, data.selectedProps or {}, data.selectedVehicles or {}, data.selectedObjects or {}, data.selectedOverlays or {}, data.selectedWeapons or {}) end)
 end)
 
 RegisterNUICallback('cancelPreview', function(_, cb)
@@ -1548,19 +1715,31 @@ RegisterNUICallback('applyClothing', function(data, cb)
         -- Clear all overlays, then apply selected one with correct color
         for i = 0, 12 do SetPedHeadOverlay(ped, i, 255, 1.0) end
         ApplyOverlayWithColor(ped, data.id, data.drawable)
-    elseif data.itemType == 'vehicle' and data.model then
+    elseif (data.itemType == 'vehicle' or data.itemType == 'weapon') and data.model then
+        local itemType = data.itemType
         CreateThread(function()
             DeleteStudioEntity()
             Wait(0)
             SetEntityVisible(ped, false, false)
-            captureMode = 'vehicle'
-            SpawnStudioVehicle(data.model)
+            captureMode = itemType
+            if itemType == 'vehicle' then
+                SpawnStudioVehicle(data.model)
+            else
+                SpawnStudioWeapon(data.model)
+            end
             Wait(300)
             if spawnedEntity and DoesEntityExist(spawnedEntity) then
                 local entityPos = GetEntityCoords(spawnedEntity)
-                local preset = Customize.CameraPresets['vehicle']
+                local preset = Customize.CameraPresets[itemType]
                 if preset then
-                    orbitCenter = vector3(entityPos.x, entityPos.y, entityPos.z + preset.zPos)
+                    if itemType == 'weapon' then
+                        local center, dist = GetWeaponFraming(spawnedEntity, orbitFov > 0 and orbitFov or preset.fov)
+                        orbitCenter   = center
+                        orbitBaseDist = dist
+                        orbitDist     = dist
+                    else
+                        orbitCenter = vector3(entityPos.x, entityPos.y, entityPos.z + preset.zPos)
+                    end
                     UpdateOrbitCamera()
                 end
             end
@@ -1572,7 +1751,7 @@ RegisterNUICallback('setCameraPreset', function(data, cb)
     local cam = data.camera or 'torso'
     activePreviewCamera = cam
 
-    local isEntityMode = data.categoryType == 'vehicle' or data.categoryType == 'object'
+    local isEntityMode = data.categoryType == 'vehicle' or data.categoryType == 'object' or data.categoryType == 'weapon'
 
     if not isEntityMode then
         SetOrbitPreset(cam)
@@ -1611,6 +1790,21 @@ RegisterNUICallback('setCameraPreset', function(data, cb)
                     if modelToSpawn then
                         SpawnStudioVehicle(modelToSpawn)
                     end
+                elseif data.categoryType == 'weapon' then
+                    -- categoryId is the weapon group name; spawn firstModel if
+                    -- provided, otherwise the group's first configured weapon
+                    local weaponToSpawn = data.firstModel
+                    if not weaponToSpawn then
+                        for _, cat in ipairs(Customize.WeaponCategories or {}) do
+                            if (cat.category or 'Weapons') == data.categoryId then
+                                weaponToSpawn = cat.weapon:lower()
+                                break
+                            end
+                        end
+                    end
+                    if weaponToSpawn then
+                        SpawnStudioWeapon(weaponToSpawn)
+                    end
                 else
                     SpawnStudioObject(data.categoryId)
                 end
@@ -1626,8 +1820,12 @@ RegisterNUICallback('setCameraPreset', function(data, cb)
                     local entityPos = GetEntityCoords(spawnedEntity)
                     local preset = Customize.CameraPresets[cam]
                     if preset then
-                        orbitCenter   = vector3(entityPos.x, entityPos.y, entityPos.z + preset.zPos)
-                        orbitBaseDist = preset.dist or 8.0
+                        if data.categoryType == 'weapon' then
+                            orbitCenter, orbitBaseDist = GetWeaponFraming(spawnedEntity, preset.fov)
+                        else
+                            orbitCenter   = vector3(entityPos.x, entityPos.y, entityPos.z + preset.zPos)
+                            orbitBaseDist = preset.dist or 8.0
+                        end
                         orbitDist     = orbitBaseDist
                         orbitFov      = preset.fov
                         orbitAngleH   = math.rad(preset.defaultAngleH or 225.0)
@@ -1781,7 +1979,7 @@ end)
 
 RegisterNUICallback('zoomCamera', function(data, cb)
     if orbitCam then
-        local maxDist = captureMode == 'vehicle' and 20.0 or captureMode == 'object' and 10.0 or 5.0
+        local maxDist = captureMode == 'vehicle' and 20.0 or captureMode == 'object' and 10.0 or captureMode == 'weapon' and 6.0 or 5.0
         orbitDist = math.max(0.1, math.min(maxDist, orbitDist + (data.delta or 0) * 0.1))
         UpdateOrbitCamera()
     end
@@ -1814,7 +2012,19 @@ RegisterNUICallback('adjustFov', function(data, cb)
 end)
 
 RegisterNUICallback('resetCameraPreset', function(_, cb)
-    if orbitCam and activePreviewCamera then
+    if orbitCam and activePreviewCamera == 'weapon' and spawnedEntity and DoesEntityExist(spawnedEntity) then
+        local preset = Customize.CameraPresets['weapon']
+        local center, dist = GetWeaponFraming(spawnedEntity, preset.fov)
+        orbitCenter   = center
+        orbitBaseDist = dist
+        orbitDist     = dist
+        orbitFov      = preset.fov
+        orbitCamZ     = preset.defaultCamZ or 0.0
+        orbitRoll     = preset.defaultRoll or 0.0
+        if preset.defaultAngleH then orbitAngleH = math.rad(preset.defaultAngleH) end
+        SetCamFov(orbitCam, orbitFov)
+        UpdateOrbitCamera()
+    elseif orbitCam and activePreviewCamera then
         SetOrbitPreset(activePreviewCamera)
     end
     cb('ok')
@@ -2019,6 +2229,66 @@ RegisterCommand('shotprop', function(_, args)
     end
 end, Customize.AceRestricted)
 
+-- Single weapon capture command
+RegisterCommand('shotweapon', function(_, args)
+    if isCapturing or isPreview then return end
+    if #args == 0 then
+        BeginTextCommandThefeedPost('STRING')
+        AddTextComponentSubstringPlayerName('Usage: /shotweapon <weapon_name>')
+        EndTextCommandThefeedPostTicker(false, false)
+        return
+    end
+
+    local weaponName = args[1]:lower()
+    if not IsWeaponValid(GetHashKey(weaponName)) and IsWeaponValid(GetHashKey('weapon_' .. weaponName)) then
+        weaponName = 'weapon_' .. weaponName
+    end
+    if not IsWeaponValid(GetHashKey(weaponName)) then
+        BeginTextCommandThefeedPost('STRING')
+        AddTextComponentSubstringPlayerName('Invalid weapon: ' .. weaponName)
+        EndTextCommandThefeedPostTicker(false, false)
+        return
+    end
+
+    isPreview = true
+    captureMode = 'weapon'
+    SaveFullAppearance(PlayerPedId())
+    TriggerServerEvent('uz_autoshot:server:setBucket', Customize.RoutingBucket)
+    Wait(500)
+    HideHUD(true)
+
+    local ped = PlayerPedId()
+    SetEntityCoordsNoOffset(ped, Customize.StudioCoords.x, Customize.StudioCoords.y, Customize.StudioCoords.z, false, false, false)
+    FreezeEntityPosition(ped, true)
+    SetEntityVisible(ped, false, false)
+
+    SpawnStudioWeapon(weaponName)
+    Wait(300)
+
+    if spawnedEntity and DoesEntityExist(spawnedEntity) then
+        local preset = Customize.CameraPresets['weapon']
+        activePreviewCamera = 'weapon'
+        local center, dist = GetWeaponFraming(spawnedEntity, preset.fov)
+        orbitCenter = center
+        orbitBaseDist = dist
+        orbitDist = orbitBaseDist
+        orbitFov = preset.fov
+        orbitAngleH = math.rad(preset.defaultAngleH or 0.0)
+        orbitCamZ = preset.defaultCamZ or 0.0
+        orbitRoll = preset.defaultRoll or 0.0
+
+        local camX = orbitCenter.x + orbitDist * math.sin(orbitAngleH)
+        local camY = orbitCenter.y - orbitDist * math.cos(orbitAngleH)
+        orbitCam = CreateCamWithParams('DEFAULT_SCRIPTED_CAMERA', camX, camY, orbitCenter.z, 0.0, 0.0, 0.0, orbitFov, false, 0)
+        SetCamActive(orbitCam, true)
+        RenderScriptCams(true, false, 0, true, true)
+        UpdateOrbitCamera()
+
+        SendNUIMessage({ type = 'singleEntityPreview', model = weaponName, entityType = 'weapon' })
+        SetNuiFocus(true, true)
+    end
+end, Customize.AceRestricted)
+
 -- Single entity capture confirmation
 RegisterNUICallback('confirmSingleCapture', function(data, cb)
     cb('ok')
@@ -2037,12 +2307,17 @@ RegisterNUICallback('confirmSingleCapture', function(data, cb)
         SetNuiFocus(false, false)
         Wait(300)
 
-        local preset = Customize.CameraPresets[eType == 'vehicle' and 'vehicle' or 'object']
+        local presetName = (eType == 'vehicle' and 'vehicle') or (eType == 'weapon' and 'weapon') or 'object'
+        local preset = Customize.CameraPresets[presetName]
         DestroyCamera()
-        captureCamera = CreateCaptureCamera(spawnedEntity, preset, eType)
+        if eType == 'weapon' then
+            captureCamera = CreateWeaponCaptureCamera(spawnedEntity, preset)
+        else
+            captureCamera = CreateCaptureCamera(spawnedEntity, preset, eType)
+        end
         Wait(Customize.WaitAfterApply)
 
-        local folder = eType == 'vehicle' and 'vehicles' or 'objects'
+        local folder = (eType == 'vehicle' and 'vehicles') or (eType == 'weapon' and 'weapons') or 'objects'
         CaptureAndUpload(folder .. '/' .. model)
 
         SendProgress(1, 1, model)
@@ -2064,11 +2339,11 @@ exports('getPhotoURL', function(gender, itemType, id, drawable, texture)
     local prefix = itemType == 'overlay' and 'overlay_' or (itemType == 'prop' and 'prop_' or '')
     if itemType == 'overlay' then
         return ('https://cfx-nui-uz_AutoShot/shots/%s/%s%d/%d.%s'):format(
-            gender, prefix, id, drawable, Customize.ScreenshotFormat
+            gender, prefix, id, drawable, GetOutputExt()
         )
     end
     return ('https://cfx-nui-uz_AutoShot/shots/%s/%s%d/%d_%d.%s'):format(
-        gender, prefix, id, drawable, texture, Customize.ScreenshotFormat
+        gender, prefix, id, drawable, texture, GetOutputExt()
     )
 end)
 
@@ -2077,15 +2352,19 @@ exports('getShotsBaseURL', function()
 end)
 
 exports('getPhotoFormat', function()
-    return Customize.ScreenshotFormat
+    return GetOutputExt()
 end)
 
 exports('getVehiclePhotoURL', function(modelName)
-    return ('https://cfx-nui-uz_AutoShot/shots/vehicles/%s.%s'):format(modelName, Customize.ScreenshotFormat)
+    return ('https://cfx-nui-uz_AutoShot/shots/vehicles/%s.%s'):format(modelName, GetOutputExt())
 end)
 
 exports('getObjectPhotoURL', function(modelName)
-    return ('https://cfx-nui-uz_AutoShot/shots/objects/%s.%s'):format(modelName, Customize.ScreenshotFormat)
+    return ('https://cfx-nui-uz_AutoShot/shots/objects/%s.%s'):format(modelName, GetOutputExt())
+end)
+
+exports('getWeaponPhotoURL', function(weaponName)
+    return ('https://cfx-nui-uz_AutoShot/shots/weapons/%s.%s'):format(tostring(weaponName):lower(), GetOutputExt())
 end)
 
 -- ════════════════════════════════════════════════════════

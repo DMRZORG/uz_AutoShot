@@ -7,8 +7,8 @@ Customize.AceRestricted     = false          -- true = ACE permission required (
 Customize.RoutingBucket     = 999
 
 Customize.ScreenshotQuality = 0.92          -- 0.0–1.0 (webp/jpg only)
-Customize.ScreenshotFormat  = 'png'         -- 'png' | 'webp' | 'jpg'
-Customize.TransparentBg     = true          -- chroma key removal (png only)
+Customize.ScreenshotFormat  = 'webp'        -- 'webp' | 'png' | 'jpg' (webp keeps transparency)
+Customize.TransparentBg     = true          -- chroma key removal (webp/png; jpg output falls back to png)
 Customize.ScreenshotWidth   = 512
 Customize.ScreenshotHeight  = 512
 
@@ -90,6 +90,7 @@ Customize.CameraPresets = {
     bracelets       = { fov = 21.7, zPos = -0.19, rotation = vector3(0.0, 0.0, 0.0),   dist = 1.0, defaultAngleH = -275.6, defaultCamZ = 0.5,  defaultRoll = 0.0 },
     vehicle         = { fov = 40.0, zPos = 0.81,  rotation = vector3(0.0, 0.0, 0.0),   dist = 8.0, defaultAngleH = 399.4,  defaultCamZ = 1.82, defaultRoll = 0.0 },
     object          = { fov = 35.0, zPos = 0.42,  rotation = vector3(0.0, 0.0, 0.0),   dist = 3.7, defaultAngleH = 211.8,  defaultCamZ = 0.83, defaultRoll = 0.0 },
+    weapon          = { fov = 25.0, zPos = 0.0,   rotation = vector3(0.0, 0.0, 0.0),   dist = 1.6, defaultAngleH = 0.0,    defaultCamZ = 0.0,  defaultRoll = 0.0 },
 }
 
 -- Clothing Categories (componentId -> camera preset)
@@ -197,6 +198,131 @@ Customize.ObjectCategories = {
     { model = 'prop_golf_bag_01',     label = 'Golf Bag' },
     { model = 'prop_bball_01',        label = 'Basketball' },
     { model = 'prop_tennis_ball',     label = 'Tennis Ball' },
+}
+
+-- Weapon Categories
+-- Weapon world models spawned via CreateWeaponObject, frozen mid-air in the
+-- studio and shot in profile. Use /shotweapon <weapon_name> for unlisted ones.
+-- category: grouping shown in the capture UI accordion.
+Customize.WeaponCategories = {
+    -- Melee
+    { weapon = 'weapon_dagger',            label = 'Antique Dagger',       category = 'Melee' },
+    { weapon = 'weapon_bat',               label = 'Baseball Bat',         category = 'Melee' },
+    { weapon = 'weapon_bottle',            label = 'Broken Bottle',        category = 'Melee' },
+    { weapon = 'weapon_crowbar',           label = 'Crowbar',              category = 'Melee' },
+    { weapon = 'weapon_flashlight',        label = 'Flashlight',           category = 'Melee' },
+    { weapon = 'weapon_golfclub',          label = 'Golf Club',            category = 'Melee' },
+    { weapon = 'weapon_hammer',            label = 'Hammer',               category = 'Melee' },
+    { weapon = 'weapon_hatchet',           label = 'Hatchet',              category = 'Melee' },
+    { weapon = 'weapon_knuckle',           label = 'Brass Knuckles',       category = 'Melee' },
+    { weapon = 'weapon_knife',             label = 'Knife',                category = 'Melee' },
+    { weapon = 'weapon_machete',           label = 'Machete',              category = 'Melee' },
+    { weapon = 'weapon_switchblade',       label = 'Switchblade',          category = 'Melee' },
+    { weapon = 'weapon_nightstick',        label = 'Nightstick',           category = 'Melee' },
+    { weapon = 'weapon_wrench',            label = 'Pipe Wrench',          category = 'Melee' },
+    { weapon = 'weapon_battleaxe',         label = 'Battle Axe',           category = 'Melee' },
+    { weapon = 'weapon_poolcue',           label = 'Pool Cue',             category = 'Melee' },
+    { weapon = 'weapon_stone_hatchet',     label = 'Stone Hatchet',        category = 'Melee' },
+    -- Handguns
+    { weapon = 'weapon_pistol',            label = 'Pistol',               category = 'Handguns' },
+    { weapon = 'weapon_pistol_mk2',        label = 'Pistol Mk II',         category = 'Handguns' },
+    { weapon = 'weapon_combatpistol',      label = 'Combat Pistol',        category = 'Handguns' },
+    { weapon = 'weapon_appistol',          label = 'AP Pistol',            category = 'Handguns' },
+    { weapon = 'weapon_stungun',           label = 'Stun Gun',             category = 'Handguns' },
+    { weapon = 'weapon_pistol50',          label = 'Pistol .50',           category = 'Handguns' },
+    { weapon = 'weapon_snspistol',         label = 'SNS Pistol',           category = 'Handguns' },
+    { weapon = 'weapon_snspistol_mk2',     label = 'SNS Pistol Mk II',     category = 'Handguns' },
+    { weapon = 'weapon_heavypistol',       label = 'Heavy Pistol',         category = 'Handguns' },
+    { weapon = 'weapon_vintagepistol',     label = 'Vintage Pistol',       category = 'Handguns' },
+    { weapon = 'weapon_flaregun',          label = 'Flare Gun',            category = 'Handguns' },
+    { weapon = 'weapon_marksmanpistol',    label = 'Marksman Pistol',      category = 'Handguns' },
+    { weapon = 'weapon_revolver',          label = 'Heavy Revolver',       category = 'Handguns' },
+    { weapon = 'weapon_revolver_mk2',      label = 'Heavy Revolver Mk II', category = 'Handguns' },
+    { weapon = 'weapon_doubleaction',      label = 'Double Action Revolver', category = 'Handguns' },
+    { weapon = 'weapon_ceramicpistol',     label = 'Ceramic Pistol',       category = 'Handguns' },
+    { weapon = 'weapon_navyrevolver',      label = 'Navy Revolver',        category = 'Handguns' },
+    { weapon = 'weapon_gadgetpistol',      label = 'Perico Pistol',        category = 'Handguns' },
+    { weapon = 'weapon_pistolxm3',         label = 'WM 29 Pistol',         category = 'Handguns' },
+    -- SMGs
+    { weapon = 'weapon_microsmg',          label = 'Micro SMG',            category = 'SMGs' },
+    { weapon = 'weapon_smg',               label = 'SMG',                  category = 'SMGs' },
+    { weapon = 'weapon_smg_mk2',           label = 'SMG Mk II',            category = 'SMGs' },
+    { weapon = 'weapon_assaultsmg',        label = 'Assault SMG',          category = 'SMGs' },
+    { weapon = 'weapon_combatpdw',         label = 'Combat PDW',           category = 'SMGs' },
+    { weapon = 'weapon_machinepistol',     label = 'Machine Pistol',       category = 'SMGs' },
+    { weapon = 'weapon_minismg',           label = 'Mini SMG',             category = 'SMGs' },
+    { weapon = 'weapon_tecpistol',         label = 'Tactical SMG',         category = 'SMGs' },
+    -- Shotguns
+    { weapon = 'weapon_pumpshotgun',       label = 'Pump Shotgun',         category = 'Shotguns' },
+    { weapon = 'weapon_pumpshotgun_mk2',   label = 'Pump Shotgun Mk II',   category = 'Shotguns' },
+    { weapon = 'weapon_sawnoffshotgun',    label = 'Sawed-Off Shotgun',    category = 'Shotguns' },
+    { weapon = 'weapon_assaultshotgun',    label = 'Assault Shotgun',      category = 'Shotguns' },
+    { weapon = 'weapon_bullpupshotgun',    label = 'Bullpup Shotgun',      category = 'Shotguns' },
+    { weapon = 'weapon_musket',            label = 'Musket',               category = 'Shotguns' },
+    { weapon = 'weapon_heavyshotgun',      label = 'Heavy Shotgun',        category = 'Shotguns' },
+    { weapon = 'weapon_dbshotgun',         label = 'Double Barrel Shotgun', category = 'Shotguns' },
+    { weapon = 'weapon_autoshotgun',       label = 'Sweeper Shotgun',      category = 'Shotguns' },
+    { weapon = 'weapon_combatshotgun',     label = 'Combat Shotgun',       category = 'Shotguns' },
+    -- Rifles
+    { weapon = 'weapon_assaultrifle',      label = 'Assault Rifle',        category = 'Rifles' },
+    { weapon = 'weapon_assaultrifle_mk2',  label = 'Assault Rifle Mk II',  category = 'Rifles' },
+    { weapon = 'weapon_carbinerifle',      label = 'Carbine Rifle',        category = 'Rifles' },
+    { weapon = 'weapon_carbinerifle_mk2',  label = 'Carbine Rifle Mk II',  category = 'Rifles' },
+    { weapon = 'weapon_advancedrifle',     label = 'Advanced Rifle',       category = 'Rifles' },
+    { weapon = 'weapon_specialcarbine',    label = 'Special Carbine',      category = 'Rifles' },
+    { weapon = 'weapon_specialcarbine_mk2', label = 'Special Carbine Mk II', category = 'Rifles' },
+    { weapon = 'weapon_bullpuprifle',      label = 'Bullpup Rifle',        category = 'Rifles' },
+    { weapon = 'weapon_bullpuprifle_mk2',  label = 'Bullpup Rifle Mk II',  category = 'Rifles' },
+    { weapon = 'weapon_compactrifle',      label = 'Compact Rifle',        category = 'Rifles' },
+    { weapon = 'weapon_militaryrifle',     label = 'Military Rifle',       category = 'Rifles' },
+    { weapon = 'weapon_heavyrifle',        label = 'Heavy Rifle',          category = 'Rifles' },
+    { weapon = 'weapon_tacticalrifle',     label = 'Service Carbine',      category = 'Rifles' },
+    { weapon = 'weapon_battlerifle',       label = 'Battle Rifle',         category = 'Rifles' },
+    -- Machine Guns
+    { weapon = 'weapon_mg',                label = 'MG',                   category = 'Machine Guns' },
+    { weapon = 'weapon_combatmg',          label = 'Combat MG',            category = 'Machine Guns' },
+    { weapon = 'weapon_combatmg_mk2',      label = 'Combat MG Mk II',      category = 'Machine Guns' },
+    { weapon = 'weapon_gusenberg',         label = 'Gusenberg Sweeper',    category = 'Machine Guns' },
+    -- Snipers
+    { weapon = 'weapon_sniperrifle',       label = 'Sniper Rifle',         category = 'Snipers' },
+    { weapon = 'weapon_heavysniper',       label = 'Heavy Sniper',         category = 'Snipers' },
+    { weapon = 'weapon_heavysniper_mk2',   label = 'Heavy Sniper Mk II',   category = 'Snipers' },
+    { weapon = 'weapon_marksmanrifle',     label = 'Marksman Rifle',       category = 'Snipers' },
+    { weapon = 'weapon_marksmanrifle_mk2', label = 'Marksman Rifle Mk II', category = 'Snipers' },
+    { weapon = 'weapon_precisionrifle',    label = 'Precision Rifle',      category = 'Snipers' },
+    -- Heavy
+    { weapon = 'weapon_rpg',               label = 'RPG',                  category = 'Heavy' },
+    { weapon = 'weapon_grenadelauncher',   label = 'Grenade Launcher',     category = 'Heavy' },
+    { weapon = 'weapon_minigun',           label = 'Minigun',              category = 'Heavy' },
+    { weapon = 'weapon_firework',          label = 'Firework Launcher',    category = 'Heavy' },
+    { weapon = 'weapon_railgun',           label = 'Railgun',              category = 'Heavy' },
+    { weapon = 'weapon_hominglauncher',    label = 'Homing Launcher',      category = 'Heavy' },
+    { weapon = 'weapon_compactlauncher',   label = 'Compact Grenade Launcher', category = 'Heavy' },
+    { weapon = 'weapon_emplauncher',       label = 'Compact EMP Launcher', category = 'Heavy' },
+    -- Thrown
+    { weapon = 'weapon_grenade',           label = 'Grenade',              category = 'Thrown' },
+    { weapon = 'weapon_bzgas',             label = 'BZ Gas',               category = 'Thrown' },
+    { weapon = 'weapon_smokegrenade',      label = 'Tear Gas',             category = 'Thrown' },
+    { weapon = 'weapon_flare',             label = 'Flare',                category = 'Thrown' },
+    { weapon = 'weapon_molotov',           label = 'Molotov',              category = 'Thrown' },
+    { weapon = 'weapon_stickybomb',        label = 'Sticky Bomb',          category = 'Thrown' },
+    { weapon = 'weapon_proxmine',          label = 'Proximity Mine',       category = 'Thrown' },
+    { weapon = 'weapon_pipebomb',          label = 'Pipe Bomb',            category = 'Thrown' },
+    { weapon = 'weapon_snowball',          label = 'Snowball',             category = 'Thrown' },
+    { weapon = 'weapon_ball',              label = 'Baseball',             category = 'Thrown' },
+    -- Misc
+    { weapon = 'weapon_petrolcan',         label = 'Jerry Can',            category = 'Misc' },
+    { weapon = 'weapon_fireextinguisher',  label = 'Fire Extinguisher',    category = 'Misc' },
+    { weapon = 'weapon_hazardcan',         label = 'Hazardous Jerry Can',  category = 'Misc' },
+    { weapon = 'weapon_metaldetector',     label = 'Metal Detector',       category = 'Misc' },
+}
+
+-- Green Screen (Weapons) — small, weapon floats at studio height
+Customize.WeaponGreenScreen = {
+    width       = 8.0,
+    depth       = 8.0,
+    height      = 8.5,
+    floorOffset = -3.0,
 }
 
 -- Green Screen (Vehicles) — larger for cars

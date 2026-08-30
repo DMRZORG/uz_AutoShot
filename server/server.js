@@ -2,6 +2,15 @@ const path = require('path');
 const fs   = require('fs');
 const { PNG } = require('pngjs');
 
+// WASM WebP codec (Squoosh port). Loaded defensively so a missing install
+// degrades to png output instead of killing the resource.
+let webp = null;
+try {
+    webp = require('webp-wasm');
+} catch (err) {
+    console.log('^3[uz_AutoShot]^0 webp-wasm not installed (' + err.message + ') — webp output will fall back to png. Restart the server so yarn installs new dependencies.');
+}
+
 const RESOURCE   = GetCurrentResourceName();
 const RES_PATH   = GetResourcePath(RESOURCE);
 const OUTPUT_DIR = path.resolve(path.join(RES_PATH, 'shots'));
@@ -238,9 +247,24 @@ function resizePNG(pngBuffer, targetW, targetH) {
     return PNG.sync.write(dst, { colorType: 6 });
 }
 
+function isPngBuffer(buf) {
+    return buf.length > 8 &&
+        buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+}
+
+async function pngToWebP(pngBuffer, quality) {
+    const png = PNG.sync.read(pngBuffer);
+    const imgData = {
+        data: new Uint8ClampedArray(png.data.buffer, png.data.byteOffset, png.data.length),
+        width: png.width,
+        height: png.height,
+    };
+    return Buffer.from(await webp.encode(imgData, { quality }));
+}
+
 const MAX_PAYLOAD_BYTES = 20 * 1024 * 1024;
 
-onNet('uz_autoshot:server:processCapture', (payload) => {
+onNet('uz_autoshot:server:processCapture', async (payload) => {
     const src = source;
     if (!checkAce(src)) {
         console.log('^1[uz_AutoShot]^0 Refused capture: player ' + src + ' lacks ' + ACE_NAME);
@@ -249,7 +273,8 @@ onNet('uz_autoshot:server:processCapture', (payload) => {
     if (!payload || typeof payload !== 'object') return;
 
     const xFilename  = typeof payload.filename === 'string' ? payload.filename : '';
-    const wantFormat = typeof payload.format === 'string' ? payload.format.toLowerCase() : 'png';
+    const wantFormat = typeof payload.format === 'string' ? payload.format.toLowerCase() : 'webp';
+    const wantQual   = Math.min(100, Math.max(1, Math.round((parseFloat(payload.quality) || 0.92) * 100)));
     const wantTransp = payload.transparent === true || payload.transparent === '1' || payload.transparent === 1;
     const chromaKey  = typeof payload.chromaKey === 'string' ? payload.chromaKey.toLowerCase() : 'green';
     const wantWidth  = parseInt(payload.width)  || 0;
@@ -277,17 +302,17 @@ onNet('uz_autoshot:server:processCapture', (payload) => {
         }
 
         let ext = wantFormat;
+        const wantResize = wantWidth > 0 && wantHeight > 0;
 
-        if (wantTransp) {
+        if (wantTransp && isPngBuffer(outputData)) {
             try {
                 outputData = removeChromaKey(outputData, chromaKey);
-                ext = 'png';
             } catch (e) {
                 console.log('^3[uz_AutoShot]^0 Chroma key skipped: ' + e.message);
             }
         }
 
-        if (wantWidth > 0 && wantHeight > 0 && ext === 'png') {
+        if (wantResize && isPngBuffer(outputData)) {
             const MAX_DIM = 4096;
             const clampedW = Math.min(Math.max(wantWidth, 16), MAX_DIM);
             const clampedH = Math.min(Math.max(wantHeight, 16), MAX_DIM);
@@ -296,8 +321,25 @@ onNet('uz_autoshot:server:processCapture', (payload) => {
             } catch (e) {
                 console.log('^3[uz_AutoShot]^0 Resize skipped: ' + e.message);
             }
-        } else if (wantWidth > 0 && wantHeight > 0 && ext !== 'png') {
-            console.log('^3[uz_AutoShot]^0 Resize requires PNG format; skipping for ' + ext);
+        } else if (wantResize) {
+            console.log('^3[uz_AutoShot]^0 Resize requires a png source; skipping for ' + ext);
+        }
+
+        if (isPngBuffer(outputData)) {
+            // Processed frames are png at this point; webp output gets its
+            // final encode here, everything else stays png on disk (jpg
+            // can't carry the alpha channel a chroma-keyed frame needs).
+            if (wantFormat === 'webp' && webp) {
+                try {
+                    outputData = await pngToWebP(outputData, wantQual);
+                    ext = 'webp';
+                } catch (e) {
+                    console.log('^3[uz_AutoShot]^0 WebP encode failed (' + e.message + '); saving png instead');
+                    ext = 'png';
+                }
+            } else {
+                ext = 'png';
+            }
         }
 
         const outputPath = path.resolve(path.join(OUTPUT_DIR, xFilename + '.' + ext));
