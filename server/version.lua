@@ -2,6 +2,23 @@ local ResourceName    = GetCurrentResourceName()
 local CURRENT_VERSION = GetResourceMetadata(ResourceName, 'version')
 local VERSION_URL     = 'https://uz-scripts.com/api/versions/uz-autoshot'
 
+local function ParseVersion(version)
+    local parts = {}
+    for part in string.gmatch(version, '%d+') do
+        parts[#parts + 1] = tonumber(part)
+    end
+    return parts
+end
+
+local function IsNewer(latest, current)
+    local a, b = ParseVersion(latest), ParseVersion(current)
+    for i = 1, math.max(#a, #b) do
+        local x, y = a[i] or 0, b[i] or 0
+        if x ~= y then return x > y end
+    end
+    return false
+end
+
 local function CheckVersion()
     Wait(1400)
     if ResourceName ~= 'uz_AutoShot' then
@@ -15,7 +32,7 @@ local function CheckVersion()
             local current = 'v' .. CURRENT_VERSION
 
             if latest and latest ~= '' then
-                if latest ~= current then
+                if IsNewer(latest, current) then
                     print(('^3[uz_AutoShot] New version available: %s (Current: %s) — https://discord.uz-scripts.com/^0'):format(latest, current))
                 else
                     print(('^2[uz_AutoShot] Up to date (%s)^0'):format(current))
