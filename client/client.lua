@@ -24,6 +24,11 @@ local orbitFov      = 40.0
 local orbitBaseDist = 1.2
 local orbitRoll     = 0.0
 local orbitCamZ     = 0.0   -- camera Z offset (center stays fixed, camera moves up/down)
+-- Snapshot of the orbit the user was looking at when they hit capture
+-- (savedCameraAngles shape + .preset). CreateCaptureCamera replays it for
+-- that preset so an unsaved preview still captures exactly what was on
+-- screen: angle, zoom, fov, roll and the W/S zPos adjustment.
+local liveOrbit     = nil
 
 local pedAppearance = {
     model = nil, coords = nil, heading = nil,
@@ -125,7 +130,13 @@ end
 
 local function CreateCaptureCamera(entity, preset, presetName)
     local pedPos = GetEntityCoords(entity)
-    local saved  = presetName and savedCameraAngles[presetName]
+    -- The orbit the user was looking at when capture started wins for its
+    -- own preset (what you see is what you get); otherwise fall back to the
+    -- angle they explicitly saved for this preset.
+    local saved = presetName and (
+        (liveOrbit and liveOrbit.preset == presetName and liveOrbit)
+        or savedCameraAngles[presetName]
+    )
     local camX, camY, camZ, fov, lookZ, roll
 
     if saved then
@@ -138,27 +149,27 @@ local function CreateCaptureCamera(entity, preset, presetName)
         lookZ = pedPos.z + zP
         roll  = saved.roll or 0.0
     elseif preset.defaultAngleH then
-        -- Mirror the saved branch using the live orbit state. Reading
-        -- orbitAngleH/Dist/Fov here keeps "Start without saving" framed
-        -- exactly like the preview the user just left, instead of snapping
-        -- back to preset.defaultAngleH (which would 180-flip whenever the
-        -- user had rotated the orbit to face the ped).
-        local dist = (orbitDist > 0 and orbitDist) or preset.dist or 1.2
-        local aH   = orbitAngleH
-        local cZ   = orbitCamZ or preset.defaultCamZ or 0.0
+        -- Nothing saved and the live orbit belongs to another preset: frame
+        -- with the preset defaults, which is exactly what SetOrbitPreset
+        -- shows when this category is clicked in the preview. Reading the
+        -- live orbit here used to frame e.g. an object with whatever
+        -- clothing camera the user happened to leave the preview on.
+        local dist = preset.dist or 1.2
+        local aH   = math.rad(preset.defaultAngleH)
+        local cZ   = preset.defaultCamZ or 0.0
         camX  = pedPos.x + dist * math.sin(aH)
         camY  = pedPos.y - dist * math.cos(aH)
         camZ  = pedPos.z + preset.zPos + cZ
-        fov   = (orbitFov and orbitFov > 0) and orbitFov or preset.fov
+        fov   = preset.fov
         lookZ = pedPos.z + preset.zPos
-        roll  = orbitRoll or preset.defaultRoll or 0.0
+        roll  = preset.defaultRoll or 0.0
     else
         -- Legacy preset without defaultAngleH: rotate ped to align with
         -- camera, then place camera behind ped's forward vector.
         local rotZ = preset.rotation.z + captureRotOffset
-        SetEntityRotation(ped, preset.rotation.x, preset.rotation.y, rotZ, 2, false)
+        SetEntityRotation(entity, preset.rotation.x, preset.rotation.y, rotZ, 2, false)
         Wait(50)
-        local fwd = GetEntityForwardVector(ped)
+        local fwd = GetEntityForwardVector(entity)
         local dist = preset.dist or 1.2
         camX  = pedPos.x - fwd.x * dist
         camY  = pedPos.y - fwd.y * dist
@@ -312,12 +323,12 @@ local function UpdateOrbitCamera()
     SetCamRot(orbitCam, pitch, orbitRoll, heading, 2)
 end
 
-local function SetOrbitPreset(presetName)
+local function SetOrbitPreset(presetName, entity)
     if not orbitCam then return end
     local preset = Customize.CameraPresets[presetName]
     if not preset then return end
 
-    local pedPos = GetEntityCoords(PlayerPedId())
+    local pedPos = GetEntityCoords(entity or PlayerPedId())
     orbitCenter   = vector3(pedPos.x, pedPos.y, pedPos.z + preset.zPos)
     orbitBaseDist = preset.dist or 1.2
     orbitDist     = orbitBaseDist
@@ -786,13 +797,63 @@ local function GetWeaponFraming(obj, fov)
     return center, math.max(dist, 0.3)
 end
 
+-- Z the orbit center is measured against: the auto-framing center for
+-- weapons, the studio entity origin for vehicles/objects, the ped for
+-- clothing. zPos values (saved angles, debug overlay) are relative to this.
+local function GetOrbitRefZ()
+    if captureMode ~= 'clothing' and spawnedEntity and DoesEntityExist(spawnedEntity) then
+        if captureMode == 'weapon' then
+            local center = GetWeaponFraming(spawnedEntity, orbitFov)
+            return center.z
+        end
+        return GetEntityCoords(spawnedEntity).z
+    end
+    return GetEntityCoords(PlayerPedId()).z
+end
+
+-- Serialize the live orbit in the savedCameraAngles shape. Must run while
+-- the preview entity still exists so zPos stays relative to its origin.
+local function SnapshotOrbit(presetName)
+    if not orbitCam then return nil end
+    return {
+        preset = presetName,
+        angleH = orbitAngleH,
+        dist   = orbitDist,   fov  = orbitFov,
+        zoom   = (orbitBaseDist > 0) and (orbitDist / orbitBaseDist) or 1.0,
+        zPos   = orbitCenter.z - GetOrbitRefZ(),
+        camZ   = orbitCamZ,   roll = orbitRoll,
+    }
+end
+
+-- Re-apply a saved angle to the orbit camera around the current reference
+-- (ped or spawned entity). Weapons restore relative zoom instead of the raw
+-- distance because their base distance is auto-fitted per model.
+local function ApplySavedOrbit(presetName)
+    local saved = savedCameraAngles[presetName]
+    if not saved or not orbitCam then return end
+    orbitAngleH = saved.angleH
+    if captureMode == 'weapon' and saved.zoom and orbitBaseDist > 0 then
+        orbitDist = orbitBaseDist * saved.zoom
+    else
+        orbitDist = saved.dist
+    end
+    orbitFov  = saved.fov
+    orbitCamZ = saved.camZ or 0.0
+    orbitRoll = saved.roll or 0.0
+    if saved.zPos then
+        orbitCenter = vector3(orbitCenter.x, orbitCenter.y, GetOrbitRefZ() + saved.zPos)
+    end
+    SetCamFov(orbitCam, orbitFov)
+    UpdateOrbitCamera()
+end
+
 -- Capture camera for weapons. Direction/fov/roll come from a saved weapon
 -- angle or the live orbit (when the user previewed a weapon last); distance
 -- is always auto-fitted per weapon, scaled by the user's relative zoom so
 -- zooming in the preview still means something across differently sized
 -- weapons.
 local function CreateWeaponCaptureCamera(obj, preset)
-    local saved      = savedCameraAngles['weapon']
+    local saved      = (liveOrbit and liveOrbit.preset == 'weapon' and liveOrbit) or savedCameraAngles['weapon']
     local orbitIsWpn = activePreviewCamera == 'weapon'
 
     local fov  = (saved and saved.fov) or (orbitIsWpn and orbitFov > 0 and orbitFov) or preset.fov
@@ -801,8 +862,13 @@ local function CreateWeaponCaptureCamera(obj, preset)
     local cZ   = (saved and saved.camZ) or (orbitIsWpn and orbitCamZ) or preset.defaultCamZ or 0.0
 
     local center, dist = GetWeaponFraming(obj, fov)
-    if orbitIsWpn and orbitBaseDist and orbitBaseDist > 0 then
+    if saved and saved.zoom then
+        dist = dist * saved.zoom
+    elseif orbitIsWpn and orbitBaseDist and orbitBaseDist > 0 then
         dist = dist * (orbitDist / orbitBaseDist)
+    end
+    if saved and saved.zPos then
+        center = vector3(center.x, center.y, center.z + saved.zPos)
     end
 
     local camX = center.x + dist * math.sin(aH)
@@ -1200,6 +1266,7 @@ local function CleanupCapture()
     DestroyCamera()
     DeleteStudioEntity()
     HideHUD(false)
+    liveOrbit = nil
     hideHeadActive = false
     isCapturing = false
     isPreview   = false
@@ -1446,6 +1513,10 @@ end
 
 local function RunCapture(selectedComponents, selectedProps, selectedVehicles, selectedObjects, selectedOverlays, selectedWeapons)
     captureRotOffset = math.deg(orbitAngleH) - Customize.StudioHeading
+    -- Freeze the framing the user is looking at before the preview entity
+    -- and orbit camera are destroyed; CreateCaptureCamera replays it for
+    -- the previewed preset.
+    liveOrbit = activePreviewCamera and SnapshotOrbit(activePreviewCamera) or nil
     DestroyOrbitCamera()
     DeleteStudioEntity()
 
@@ -1608,13 +1679,7 @@ local function DrawCameraDebugOverlay()
     local lineCount = 7
     local startY = 1.0 - 0.02 - (lineCount * gap)
 
-    local refZ
-    if captureMode ~= 'clothing' and spawnedEntity and DoesEntityExist(spawnedEntity) then
-        refZ = GetEntityCoords(spawnedEntity).z
-    else
-        refZ = GetEntityCoords(PlayerPedId()).z
-    end
-    local zPos = orbitCenter.z - refZ
+    local zPos = orbitCenter.z - GetOrbitRefZ()
 
     DrawDebugText(x, startY,             ('Preset: %s'):format(activePreviewCamera or '?'))
     DrawDebugText(x, startY + gap,       ('FOV: %.1f'):format(orbitFov))
@@ -1846,6 +1911,10 @@ RegisterNUICallback('setCameraPreset', function(data, cb)
                         orbitRoll     = preset.defaultRoll or 0.0
                         if orbitCam then SetCamFov(orbitCam, orbitFov) end
                         UpdateOrbitCamera()
+                        -- The synchronous tail below runs before this thread
+                        -- has spawned anything, so entity presets restore
+                        -- their saved angle here, around the new entity.
+                        ApplySavedOrbit(cam)
                     end
                 end
             end)
@@ -1910,44 +1979,16 @@ RegisterNUICallback('setCameraPreset', function(data, cb)
         end
     end
 
-    if savedCameraAngles[cam] then
-        local saved = savedCameraAngles[cam]
-        orbitAngleH   = saved.angleH
-        orbitDist     = saved.dist
-        orbitFov      = saved.fov
-        orbitCamZ     = saved.camZ or 0.0
-        orbitRoll     = saved.roll or 0.0
-        if saved.zPos then
-            local refZ
-            if captureMode ~= 'clothing' and spawnedEntity and DoesEntityExist(spawnedEntity) then
-                refZ = GetEntityCoords(spawnedEntity).z
-            else
-                refZ = GetEntityCoords(PlayerPedId()).z
-            end
-            orbitCenter = vector3(orbitCenter.x, orbitCenter.y, refZ + saved.zPos)
-        end
-        if orbitCam then SetCamFov(orbitCam, orbitFov) end
-        UpdateOrbitCamera()
-    end
+    if not isEntityMode then ApplySavedOrbit(cam) end
     cb('ok')
 end)
 
 RegisterNUICallback('saveCameraAngle', function(data, cb)
-    local cam = data.camera or activePreviewCamera
-    if cam and orbitCam then
-        -- Use entity coords as reference for vehicle/object, ped coords for clothing
-        local refZ
-        if captureMode ~= 'clothing' and spawnedEntity and DoesEntityExist(spawnedEntity) then
-            refZ = GetEntityCoords(spawnedEntity).z
-        else
-            refZ = GetEntityCoords(PlayerPedId()).z
-        end
-        savedCameraAngles[cam] = {
-            angleH = orbitAngleH,
-            dist   = orbitDist,   fov  = orbitFov,
-            zPos   = orbitCenter.z - refZ,
-            camZ   = orbitCamZ,   roll = orbitRoll,
-        }
+    local cam  = data.camera or activePreviewCamera
+    local snap = cam and SnapshotOrbit(cam)
+    if snap then
+        snap.preset = nil
+        savedCameraAngles[cam] = snap
         cb({ saved = true, camera = cam })
     else
         cb({ saved = false })
@@ -1956,12 +1997,7 @@ end)
 
 RegisterNUICallback('getCameraValues', function(_, cb)
     if orbitCam then
-        local refZ
-        if captureMode ~= 'clothing' and spawnedEntity and DoesEntityExist(spawnedEntity) then
-            refZ = GetEntityCoords(spawnedEntity).z
-        else
-            refZ = GetEntityCoords(PlayerPedId()).z
-        end
+        local refZ = GetOrbitRefZ()
         local vals = {
             preset = activePreviewCamera or '?',
             fov    = tonumber(('%.1f'):format(orbitFov)),
@@ -2038,7 +2074,8 @@ RegisterNUICallback('resetCameraPreset', function(_, cb)
         SetCamFov(orbitCam, orbitFov)
         UpdateOrbitCamera()
     elseif orbitCam and activePreviewCamera then
-        SetOrbitPreset(activePreviewCamera)
+        local ent = (captureMode ~= 'clothing' and spawnedEntity and DoesEntityExist(spawnedEntity)) and spawnedEntity or nil
+        SetOrbitPreset(activePreviewCamera, ent)
     end
     cb('ok')
 end)
@@ -2149,6 +2186,7 @@ RegisterCommand('shotcar', function(_, args)
 
     isPreview = true
     captureMode = 'vehicle'
+    activePreviewCamera = 'vehicle'
     SaveFullAppearance(PlayerPedId())
     TriggerServerEvent('uz_autoshot:server:setBucket', Customize.RoutingBucket)
     Wait(500)
@@ -2206,6 +2244,7 @@ RegisterCommand('shotprop', function(_, args)
 
     isPreview = true
     captureMode = 'object'
+    activePreviewCamera = 'object'
     SaveFullAppearance(PlayerPedId())
     TriggerServerEvent('uz_autoshot:server:setBucket', Customize.RoutingBucket)
     Wait(500)
@@ -2310,7 +2349,13 @@ RegisterNUICallback('confirmSingleCapture', function(data, cb)
     local eType = data.entityType or 'object'
 
     CreateThread(function()
+        local presetName = (eType == 'vehicle' and 'vehicle') or (eType == 'weapon' and 'weapon') or 'object'
+        local preset = Customize.CameraPresets[presetName]
+
         captureRotOffset = math.deg(orbitAngleH) - Customize.StudioHeading
+        -- Capture exactly the framing shown in the preview, even if an angle
+        -- for this preset was saved in an earlier batch session.
+        liveOrbit = SnapshotOrbit(presetName)
         DestroyOrbitCamera()
         isPreview = false
         isCapturing = true
@@ -2320,8 +2365,6 @@ RegisterNUICallback('confirmSingleCapture', function(data, cb)
         SetNuiFocus(false, false)
         Wait(300)
 
-        local presetName = (eType == 'vehicle' and 'vehicle') or (eType == 'weapon' and 'weapon') or 'object'
-        local preset = Customize.CameraPresets[presetName]
         DestroyCamera()
         if eType == 'weapon' then
             captureCamera = CreateWeaponCaptureCamera(spawnedEntity, preset)

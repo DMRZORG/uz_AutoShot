@@ -128,7 +128,7 @@ The orbit camera is active during the preview step before each capture session a
 | R | Reset to the category's default angle |
 | C | Copy the current camera values to your clipboard in Lua format, ready to paste into `Customize.CameraPresets` |
 
-To save the framing for a category mid-session, click the save button in the preview UI. Saved angles persist for the session: when the batch reaches a category you saved, that framing is reused automatically.
+To save the framing for a category mid-session, click the save button in the preview UI. Saved angles persist for the session: when the batch reaches a category you saved, that framing is reused automatically. The framing you are looking at when you press Start (including height and zoom) is always used for that category, saved or not; categories you did not preview use their preset defaults.
 
 ---
 
