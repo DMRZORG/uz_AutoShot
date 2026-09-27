@@ -457,6 +457,44 @@ local function GetOutputExt()
     return format
 end
 
+local pendingProcess = {}
+local processCounter = 0
+
+RegisterNUICallback('captureProcessed', function(data, cb)
+    if data and data.id and pendingProcess[data.id] ~= nil then
+        pendingProcess[data.id] = data.image or false
+    end
+    cb('ok')
+end)
+
+-- Runs chroma key, resize and the final encode in the NUI page, so the server
+-- only receives the finished file. Returns nil if the page did not answer.
+local function ProcessInNui(base64, format)
+    processCounter = processCounter + 1
+    local id = processCounter
+    pendingProcess[id] = true
+
+    SendNUIMessage({
+        type        = 'processCapture',
+        id          = id,
+        image       = base64,
+        format      = format,
+        quality     = Customize.ScreenshotQuality or 0.92,
+        transparent = Customize.TransparentBg and true or false,
+        chromaKey   = Customize.ChromaKeyColor or 'green',
+        width       = Customize.ScreenshotWidth or 0,
+        height      = Customize.ScreenshotHeight or 0,
+    })
+
+    local timeout = GetGameTimer() + 10000
+    while pendingProcess[id] == true and GetGameTimer() < timeout do Wait(0) end
+
+    local result = pendingProcess[id]
+    pendingProcess[id] = nil
+    if result == true or result == false or result == '' then return nil end
+    return result
+end
+
 local function CaptureAndUpload(filename)
     ForceHighQuality()
 
@@ -480,11 +518,27 @@ local function CaptureAndUpload(filename)
     end)
 
     local timeout = GetGameTimer() + 10000
-    while not done and GetGameTimer() < timeout do Wait(50) end
+    while not done and GetGameTimer() < timeout do Wait(0) end
 
     if not base64 or base64 == '' then
         print('^3[uz_AutoShot]^0 Capture skipped (' .. filename .. '): empty screenshot')
         return
+    end
+
+    if needsProcessing then
+        local processed = ProcessInNui(base64, format)
+        if processed then
+            TriggerLatentServerEvent('uz_autoshot:server:processCapture', Customize.LatentRate or 8000000, {
+                filename    = filename,
+                format      = format,
+                transparent = false,
+                width       = 0,
+                height      = 0,
+                imageData   = processed,
+            })
+            return
+        end
+        print('^3[uz_AutoShot]^0 NUI processing failed for ' .. filename .. ', sending the raw frame to the server')
     end
 
     TriggerLatentServerEvent('uz_autoshot:server:processCapture', Customize.LatentRate or 8000000, {

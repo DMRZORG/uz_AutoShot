@@ -2,14 +2,9 @@ const path = require('path');
 const fs   = require('fs');
 const { PNG } = require('pngjs');
 
-// WASM WebP codec (Squoosh port). Loaded defensively so a missing install
-// degrades to png output instead of killing the resource.
-let webp = null;
-try {
-    webp = require('webp-wasm');
-} catch (err) {
-    console.log('^3[uz_AutoShot]^0 webp-wasm not installed (' + err.message + ') — webp output will fall back to png. Restart the server so yarn installs new dependencies.');
-}
+// webp is encoded client-side in the NUI page. A wasm codec inside FXServer's
+// node aborted the whole server (libuv PostQueuedCompletionStatus fatal), so
+// frames that still arrive here as png are saved as png.
 
 const RESOURCE   = GetCurrentResourceName();
 const RES_PATH   = GetResourcePath(RESOURCE);
@@ -247,19 +242,14 @@ function resizePNG(pngBuffer, targetW, targetH) {
     return PNG.sync.write(dst, { colorType: 6 });
 }
 
+function isWebpBuffer(buf) {
+    return buf.length > 12 &&
+        buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
+}
+
 function isPngBuffer(buf) {
     return buf.length > 8 &&
         buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-}
-
-async function pngToWebP(pngBuffer, quality) {
-    const png = PNG.sync.read(pngBuffer);
-    const imgData = {
-        data: new Uint8ClampedArray(png.data.buffer, png.data.byteOffset, png.data.length),
-        width: png.width,
-        height: png.height,
-    };
-    return Buffer.from(await webp.encode(imgData, { quality }));
 }
 
 const MAX_PAYLOAD_BYTES = 20 * 1024 * 1024;
@@ -274,7 +264,6 @@ onNet('uz_autoshot:server:processCapture', async (payload) => {
 
     const xFilename  = typeof payload.filename === 'string' ? payload.filename : '';
     const wantFormat = typeof payload.format === 'string' ? payload.format.toLowerCase() : 'webp';
-    const wantQual   = Math.min(100, Math.max(1, Math.round((parseFloat(payload.quality) || 0.92) * 100)));
     const wantTransp = payload.transparent === true || payload.transparent === '1' || payload.transparent === 1;
     const chromaKey  = typeof payload.chromaKey === 'string' ? payload.chromaKey.toLowerCase() : 'green';
     const wantWidth  = parseInt(payload.width)  || 0;
@@ -326,20 +315,9 @@ onNet('uz_autoshot:server:processCapture', async (payload) => {
         }
 
         if (isPngBuffer(outputData)) {
-            // Processed frames are png at this point; webp output gets its
-            // final encode here, everything else stays png on disk (jpg
-            // can't carry the alpha channel a chroma-keyed frame needs).
-            if (wantFormat === 'webp' && webp) {
-                try {
-                    outputData = await pngToWebP(outputData, wantQual);
-                    ext = 'webp';
-                } catch (e) {
-                    console.log('^3[uz_AutoShot]^0 WebP encode failed (' + e.message + '); saving png instead');
-                    ext = 'png';
-                }
-            } else {
-                ext = 'png';
-            }
+            ext = 'png';
+        } else if (isWebpBuffer(outputData)) {
+            ext = 'webp';
         }
 
         const outputPath = path.resolve(path.join(OUTPUT_DIR, xFilename + '.' + ext));

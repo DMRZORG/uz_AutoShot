@@ -15,14 +15,14 @@ Customize.ScreenshotHeight  = 512
 Customize.StudioCoords      = vector3(0.0, 0.0, -150.0)
 Customize.StudioHeading     = 180.0
 
-Customize.WaitAfterApply    = 500           -- ms
-Customize.WaitAfterCapture  = 300           -- ms
-Customize.TextureLoadWait   = 600           -- ms
+Customize.WaitAfterApply    = 150           -- ms (clothing is already preloaded before this)
+Customize.WaitAfterCapture  = 0             -- ms (the capture has finished by now)
+Customize.TextureLoadWait   = 300           -- ms
 Customize.CaptureAllTextures = false        -- true = all textures, false = texture 0 only
 
 -- Batch / Performance
-Customize.BatchSize         = 10
-Customize.BatchPauseWait    = 2000          -- ms
+Customize.BatchSize         = 50
+Customize.BatchPauseWait    = 250           -- ms
 Customize.GCInterval        = 20
 Customize.LatentRate        = 8000000       -- bytes/sec for capture upload (latent event throttle).
                                             -- 8 MB/s is plenty for 512x512; raise for 4K source frames
