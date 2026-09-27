@@ -27,6 +27,7 @@ ui_page 'resources/build/index.html'
 files {
     'resources/build/index.html',
     'resources/build/**/*',
+    'tattoos.json',
     'shots/**/*',
 }
 

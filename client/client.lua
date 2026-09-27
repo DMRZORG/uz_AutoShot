@@ -12,6 +12,7 @@ local captureMode       = 'clothing'  -- 'clothing' | 'vehicle' | 'object' | 'we
 local spawnedEntity     = nil
 local vehicleColor      = { primary = 0, secondary = 0 }
 local entitySpawnToken  = 0  -- increments each spawn request to cancel stale ones
+local hideHeadActive    = false
 
 -- Orbit-camera state. Declared up here so functions defined earlier in the
 -- file (CreateCaptureCamera, ...) can read the live orbit values that the
@@ -128,7 +129,7 @@ end
 -- CAPTURE CAMERA
 -- ════════════════════════════════════════════════════════
 
-local function CreateCaptureCamera(entity, preset, presetName)
+local function CreateCaptureCamera(entity, preset, presetName, flip)
     local pedPos = GetEntityCoords(entity)
     -- The orbit the user was looking at when capture started wins for its
     -- own preset (what you see is what you get); otherwise fall back to the
@@ -177,6 +178,11 @@ local function CreateCaptureCamera(entity, preset, presetName)
         fov   = preset.fov
         lookZ = pedPos.z + preset.zPos
         roll  = 0.0
+    end
+
+    if flip then
+        camX = 2 * pedPos.x - camX
+        camY = 2 * pedPos.y - camY
     end
 
     local cam = CreateCamWithParams('DEFAULT_SCRIPTED_CAMERA', camX, camY, camZ, 0.0, 0.0, 0.0, fov, false, 0)
@@ -495,7 +501,11 @@ local function ProcessInNui(base64, format)
     return result
 end
 
-local function CaptureAndUpload(filename)
+local function NeedsProcessing(format)
+    return Customize.TransparentBg or format == 'webp'
+end
+
+local function GrabFrame()
     ForceHighQuality()
 
     local format = (Customize.ScreenshotFormat or 'webp'):lower()
@@ -503,8 +513,7 @@ local function CaptureAndUpload(filename)
     -- RGBA pixels, so transparent and webp captures are grabbed as a
     -- lossless png source frame and converted there. Plain jpg stays a
     -- direct passthrough (never resized), same as before.
-    local needsProcessing = Customize.TransparentBg or format == 'webp'
-    local encoding = needsProcessing and 'png' or format
+    local encoding = NeedsProcessing(format) and 'png' or format
 
     local opts = { encoding = encoding }
     if encoding ~= 'png' then
@@ -520,12 +529,18 @@ local function CaptureAndUpload(filename)
     local timeout = GetGameTimer() + 10000
     while not done and GetGameTimer() < timeout do Wait(0) end
 
-    if not base64 or base64 == '' then
+    if base64 == '' then return nil end
+    return base64
+end
+
+local function UploadFrame(filename, base64)
+    if not base64 then
         print('^3[uz_AutoShot]^0 Capture skipped (' .. filename .. '): empty screenshot')
         return
     end
 
-    if needsProcessing then
+    local format = (Customize.ScreenshotFormat or 'webp'):lower()
+    if NeedsProcessing(format) then
         local processed = ProcessInNui(base64, format)
         if processed then
             TriggerLatentServerEvent('uz_autoshot:server:processCapture', Customize.LatentRate or 8000000, {
@@ -551,6 +566,60 @@ local function CaptureAndUpload(filename)
         height      = Customize.ScreenshotHeight or 0,
         imageData   = base64,
     })
+end
+
+local function CaptureAndUpload(filename)
+    UploadFrame(filename, GrabFrame())
+end
+
+local pendingPick = {}
+
+RegisterNUICallback('sidePicked', function(data, cb)
+    if data and data.id and pendingPick[data.id] ~= nil then
+        pendingPick[data.id] = { index = tonumber(data.index) or 2, scores = data.scores or {} }
+    end
+    cb('ok')
+end)
+
+local function PickChangedFrame(frames, bases)
+    processCounter = processCounter + 1
+    local id = processCounter
+    pendingPick[id] = true
+
+    SendNUIMessage({ type = 'pickSide', id = id, frames = frames, bases = bases })
+
+    local timeout = GetGameTimer() + 10000
+    while pendingPick[id] == true and GetGameTimer() < timeout do Wait(0) end
+
+    local pick = pendingPick[id]
+    pendingPick[id] = nil
+    if pick == true then return 2, {} end
+    return pick.index, pick.scores
+end
+
+-- Mirrored side first so the camera ends on the preset's own angle.
+local function ShootBothSides(ped, preset, presetName)
+    local frames = {}
+    for i, flip in ipairs({ true, false }) do
+        DestroyCamera()
+        captureCamera = CreateCaptureCamera(ped, preset, presetName, flip)
+        Wait(50)
+        frames[i] = GrabFrame()
+    end
+    return frames
+end
+
+-- Decals can sit on the chest or the back, so shoot both sides and keep the
+-- one that differs most from the same side with the slot empty.
+local function CaptureBestSide(ped, preset, presetName, bases, filename)
+    local frames = ShootBothSides(ped, preset, presetName)
+    if not (frames[1] and frames[2] and bases[1] and bases[2]) then
+        return UploadFrame(filename, frames[2])
+    end
+    local index, scores = PickChangedFrame(frames, bases)
+    print(('^5[uz_AutoShot]^0 %s -> %s (preset side %s, mirrored %s)'):format(
+        filename, index == 2 and 'preset side' or 'mirrored', tostring(scores[2]), tostring(scores[1])))
+    UploadFrame(filename, frames[index])
 end
 
 local function SendProgress(current, total, category)
@@ -1030,6 +1099,11 @@ local function CaptureComponents(ped, gender, selectedSet)
         ResetPedForCategory(ped, cat.visibleComponents, cat.componentOverrides)
         hideHeadActive = cat.hideHead or false
         local preset, hasSaved = SetupCategoryCamera(ped, cat.camera)
+        local bases
+        if cat.autoSide then
+            Wait(Customize.WaitAfterApply)
+            bases = ShootBothSides(ped, preset, cat.camera)
+        end
 
         for drawableId = 0, GetNumberOfPedDrawableVariations(ped, cat.componentId) - 1 do
             if isCancelled then return end
@@ -1047,7 +1121,11 @@ local function CaptureComponents(ped, gender, selectedSet)
                 local filename = textureId > 0
                     and ('%s/%d/%d_%d'):format(gender, cat.componentId, drawableId, textureId)
                     or  ('%s/%d/%d'):format(gender, cat.componentId, drawableId)
-                CaptureAndUpload(filename)
+                if bases then
+                    CaptureBestSide(ped, preset, cat.camera, bases, filename)
+                else
+                    CaptureAndUpload(filename)
+                end
 
                 captured = captured + 1
                 SendProgress(captured, totalItems, cat.label)
@@ -1316,6 +1394,105 @@ end
 -- CLEANUP
 -- ════════════════════════════════════════════════════════
 
+local tattooCameras = {
+    head = 'tattoo_head', torso = 'tattoo_torso',
+    leftArm = 'tattoo_arm', rightArm = 'tattoo_arm',
+    leftLeg = 'tattoo_leg', rightLeg = 'tattoo_leg',
+}
+local tattooZoneFacing = {
+    head = 'front', torso = 'front', leftArm = 'left', rightArm = 'right', leftLeg = 'left', rightLeg = 'right',
+}
+
+local function PointTattooCamera(ped, zone, facing)
+    local base = Customize.CameraPresets[tattooCameras[zone]]
+    local preset = setmetatable({ defaultAngleH = Customize.TattooFacingAngles[facing] }, { __index = base })
+    DestroyCamera()
+    captureCamera = CreateCaptureCamera(ped, preset, nil)
+    Wait(50)
+end
+
+local function TattooSides(zone, facing)
+    if facing ~= '' then return { facing } end
+    if zone == 'torso' then return { 'front', 'back' } end
+    return { tattooZoneFacing[zone] }
+end
+
+local allTattooSides = { 'front', 'back', 'left', 'right' }
+
+local function CaptureTattoos(ped, gender, only)
+    local raw = LoadResourceFile(GetCurrentResourceName(), 'tattoos.json')
+    if not raw then
+        print('^1[uz_AutoShot]^0 tattoos.json is not loaded on the client. Run "refresh" then "ensure uz_AutoShot" in the server console.')
+        return
+    end
+
+    local key = gender == 'female' and 'Female' or 'Male'
+    local items = {}
+    for _, entry in ipairs(json.decode(raw)) do
+        if (entry[4] == key or entry[4] == 'Any') and (not only or only[entry[1]]) then items[#items + 1] = entry end
+    end
+
+    ResetPedForCategory(ped, { 0, 2 }, Customize.TattooBody[gender])
+    hideHeadActive = false
+    ClearPedDecorations(ped)
+    Wait(Customize.WaitAfterApply)
+
+    local bases = {}
+    local function baseFor(zone, side)
+        local cacheKey = zone .. ':' .. side
+        if not bases[cacheKey] then
+            PointTattooCamera(ped, zone, side)
+            bases[cacheKey] = GrabFrame()
+        end
+        return bases[cacheKey]
+    end
+
+    local skipped = 0
+    for i, entry in ipairs(items) do
+        if isCancelled then return end
+        WaitForResume()
+        if isCancelled then return end
+
+        local name, collection, zone, facing = entry[1], entry[2], entry[3], entry[5]
+
+        local function shoot(sides)
+            ClearPedDecorations(ped)
+            local sideBases = {}
+            for j, side in ipairs(sides) do sideBases[j] = baseFor(zone, side) end
+
+            AddPedDecorationFromHashes(ped, GetHashKey(collection), GetHashKey(name))
+            Wait(Customize.WaitAfterApply)
+
+            local frames = {}
+            for j, side in ipairs(sides) do
+                PointTattooCamera(ped, zone, side)
+                frames[j] = GrabFrame()
+            end
+
+            local index, scores = PickChangedFrame(frames, sideBases)
+            return frames[index] or frames[1], tonumber(scores[index]) or 0
+        end
+
+        local frame, score = shoot(TattooSides(zone, facing))
+        if score < Customize.TattooMinChanged then frame, score = shoot(allTattooSides) end
+
+        local filename = ('%s/tattoos/%s'):format(gender, name)
+
+        if score < Customize.TattooMinChanged then
+            skipped = skipped + 1
+            print(('^3[uz_AutoShot]^0 %s skipped, only %d pixels changed'):format(filename, score))
+        else
+            UploadFrame(filename, frame)
+        end
+
+        SendProgress(i, #items, 'Tattoos')
+        ThrottledWait()
+    end
+
+    ClearPedDecorations(ped)
+    print(('^5[uz_AutoShot]^0 Tattoos done: %d captured, %d skipped'):format(#items - skipped, skipped))
+end
+
 local function CleanupCapture()
     DestroyCamera()
     DeleteStudioEntity()
@@ -1340,8 +1517,10 @@ end
 
 local function RecaptureSpecificItems(items)
     local cameraMap, visibilityMap, animMap, overridesMap, hideHeadMap = {}, {}, {}, {}, {}
+    local autoSideMap, baseCache = {}, {}
     for _, cat in ipairs(Customize.Categories) do
         local key = 'component_' .. cat.componentId
+        autoSideMap[key]   = cat.autoSide
         cameraMap[key]     = cat.camera
         visibilityMap[key] = cat.visibleComponents
         overridesMap[key]  = cat.componentOverrides
@@ -1415,6 +1594,13 @@ local function RecaptureSpecificItems(items)
             currentAnim = nil
         end
 
+        local bases = baseCache[itemKey]
+        if autoSideMap[itemKey] and not bases then
+            Wait(Customize.WaitAfterApply)
+            bases = ShootBothSides(ped, preset, cameraKey)
+            baseCache[itemKey] = bases
+        end
+
         if item.type == 'overlay' then
             for i = 0, 12 do SetPedHeadOverlay(ped, i, 255, 1.0) end
             ApplyOverlayWithColor(ped, item.id, item.drawable)
@@ -1440,7 +1626,11 @@ local function RecaptureSpecificItems(items)
                 or  ('%s/prop_%d/%d'):format(captureGender, item.id, item.drawable)
         end
 
-        CaptureAndUpload(filename)
+        if bases then
+            CaptureBestSide(ped, preset, cameraKey, bases, filename)
+        else
+            CaptureAndUpload(filename)
+        end
         captured = captured + 1
         SendProgress(captured, total, item.type == 'component' and tostring(item.id) or ('prop_' .. item.id))
         Wait(Customize.WaitAfterCapture)
@@ -1663,8 +1853,6 @@ end
 -- ════════════════════════════════════════════════════════
 -- HEAD HIDE (chroma key mask)
 -- ════════════════════════════════════════════════════════
-
-local hideHeadActive = false
 
 local function DrawHeadChromaMask(ped)
     if not hideHeadActive then return end
@@ -2524,3 +2712,34 @@ CreateThread(function()
         end
     end
 end)
+
+RegisterCommand('shottattoos', function(_, args)
+    if isCapturing or isPreview then return end
+
+    local only = nil
+    for _, name in ipairs(args) do
+        only = only or {}
+        only[name] = true
+    end
+
+    isCapturing  = true
+    isPaused     = false
+    isCancelled  = false
+    batchCounter = 0
+
+    local ped = PlayerPedId()
+    captureGender = GetPedGender(ped)
+    SaveFullAppearance(ped)
+
+    TriggerServerEvent('uz_autoshot:server:setBucket', Customize.RoutingBucket)
+    Wait(500)
+    HideHUD(true)
+
+    ped = SetupCapturePed(pedAppearance.model)
+    SendNUIMessage({ type = 'captureStart' })
+    CaptureTattoos(ped, captureGender, only)
+
+    local wasCancelled = isCancelled
+    CleanupCapture()
+    SendNUIMessage({ type = wasCancelled and 'captureCancelled' or 'captureComplete' })
+end, Customize.AceRestricted)

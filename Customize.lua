@@ -91,13 +91,30 @@ Customize.CameraPresets = {
     vehicle         = { fov = 40.0, zPos = 0.81,  rotation = vector3(0.0, 0.0, 0.0),   dist = 8.0, defaultAngleH = 399.4,  defaultCamZ = 1.82, defaultRoll = 0.0 },
     object          = { fov = 35.0, zPos = 0.42,  rotation = vector3(0.0, 0.0, 0.0),   dist = 3.7, defaultAngleH = 211.8,  defaultCamZ = 0.83, defaultRoll = 0.0 },
     weapon          = { fov = 25.0, zPos = 0.0,   rotation = vector3(0.0, 0.0, 0.0),   dist = 1.6, defaultAngleH = 0.0,    defaultCamZ = 0.0,  defaultRoll = 0.0 },
+    tattoo_head     = { fov = 22.0, zPos = 0.62,  rotation = vector3(0.0, 0.0, 0.0),   dist = 1.2, defaultAngleH = 180.0,  defaultCamZ = 0.0,  defaultRoll = 0.0 },
+    tattoo_torso    = { fov = 38.0, zPos = 0.28,  rotation = vector3(0.0, 0.0, 0.0),   dist = 1.3, defaultAngleH = 180.0,  defaultCamZ = 0.0,  defaultRoll = 0.0 },
+    tattoo_arm      = { fov = 42.0, zPos = 0.15,  rotation = vector3(0.0, 0.0, 0.0),   dist = 1.3, defaultAngleH = 180.0,  defaultCamZ = 0.0,  defaultRoll = 0.0 },
+    tattoo_leg      = { fov = 40.0, zPos = -0.5,  rotation = vector3(0.0, 0.0, 0.0),   dist = 1.4, defaultAngleH = 180.0,  defaultCamZ = 0.0,  defaultRoll = 0.0 },
 }
+
+-- Tattoos (/shottattoos) — shoots every tattoo in tattoos.json for the current gender
+-- into shots/<gender>/tattoos/<name>. Each tattoo is shot from the side it sits on
+-- (front 180, back 0, left 270, right 90 around the preset). TattooBody dresses the
+-- ped down to skin so the ink shows; -1 hides a component. TattooMinChanged skips
+-- tattoos that change fewer pixels than this (not in this game build).
+Customize.TattooBody = {
+    male   = { [3] = 15, [4] = 61, [6] = 34, [8] = -1, [11] = -1 },
+    female = { [3] = 15, [4] = 15, [6] = 35, [8] = -1, [11] = -1 },
+}
+Customize.TattooFacingAngles = { front = 180.0, back = 0.0, left = 270.0, right = 90.0 }
+Customize.TattooMinChanged = 10
 
 -- Clothing Categories (componentId -> camera preset)
 -- visibleComponents : component IDs that remain visible at drawable 0 (e.g. 0=head, 2=hair, 3=torso)
 -- componentOverrides: override specific component drawables (e.g. {[3] = 15} sets torso to drawable 15)
 -- previewDrawable   : drawable shown in preview mode (default: 0)
 -- hideHead          : draw a chroma-key sphere over the head during capture (removed by bg removal)
+-- autoSide          : shoot the preset angle and its mirror, keep whichever side shows the item
 Customize.Categories = {
     { componentId = 2,  label = 'Hair',          camera = 'hair',        visibleComponents = {0}, previewDrawable = 15 },
     { componentId = 1,  label = 'Mask',          camera = 'mask',        visibleComponents = {0, 2}, previewDrawable = 23 },
@@ -108,7 +125,7 @@ Customize.Categories = {
     { componentId = 7,  label = 'Accessories',   camera = 'accessories', visibleComponents = {0, 3}, componentOverrides = {[3] = 15}, hideHead = true },
     { componentId = 8,  label = 'Undershirt',    camera = 'tops',        visibleComponents = {}, hideHead = true },
     { componentId = 9,  label = 'Body Armor',    camera = 'body',        visibleComponents = {}, previewDrawable = 1, hideHead = true },
-    { componentId = 10, label = 'Decals',        camera = 'decals',      visibleComponents = {3}, componentOverrides = {[3] = 15}, hideHead = true },
+    { componentId = 10, label = 'Decals',        camera = 'decals',      visibleComponents = {3}, componentOverrides = {[3] = 15}, hideHead = true, autoSide = true },
     { componentId = 11, label = 'Tops',          camera = 'tops',        visibleComponents = {}, hideHead = true },
 }
 

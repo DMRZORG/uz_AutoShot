@@ -224,6 +224,73 @@ export async function processCapture({ image, format, quality, transparent, chro
   return canvas.toDataURL(mime, quality)
 }
 
+const THUMB = 256
+const SHIFT = 2
+const TOLERANCE = 48
+
+async function thumbPixels(src) {
+  const img = await loadImage(src)
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = THUMB
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  ctx.drawImage(img, 0, 0, THUMB, THUMB)
+  return ctx.getImageData(0, 0, THUMB, THUMB).data
+}
+
+// The ped keeps breathing between shots, so a pixel only counts as changed
+// when nothing within SHIFT pixels of the baseline looks like it.
+export function changedPixels(a, b, size) {
+  let n = 0
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) << 2
+      let matched = false
+      for (let dy = -SHIFT; dy <= SHIFT && !matched; dy++) {
+        const yy = y + dy
+        if (yy < 0 || yy >= size) continue
+        for (let dx = -SHIFT; dx <= SHIFT; dx++) {
+          const xx = x + dx
+          if (xx < 0 || xx >= size) continue
+          const j = (yy * size + xx) << 2
+          if (Math.abs(a[i] - b[j]) + Math.abs(a[i + 1] - b[j + 1]) + Math.abs(a[i + 2] - b[j + 2]) <= TOLERANCE) {
+            matched = true
+            break
+          }
+        }
+      }
+      if (!matched) n++
+    }
+  }
+  return n
+}
+
+export async function pickChangedFrame(frames, bases) {
+  const scores = []
+  for (let i = 0; i < frames.length; i++) {
+    const [f, b] = await Promise.all([thumbPixels(frames[i]), thumbPixels(bases[i])])
+    scores.push(changedPixels(f, b, THUMB))
+  }
+  return { index: scores.indexOf(Math.max(...scores)), scores }
+}
+
+window.addEventListener('message', async (event) => {
+  const d = event.data
+  if (!d || d.type !== 'pickSide') return
+
+  let pick = { index: d.frames.length - 1, scores: [] }
+  try {
+    pick = await pickChangedFrame(d.frames, d.bases)
+  } catch (err) {
+    console.error('[uz_AutoShot] side pick failed:', err)
+  }
+
+  fetch('https://uz_AutoShot/sidePicked', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: d.id, index: pick.index + 1, scores: pick.scores }),
+  }).catch(() => {})
+})
+
 window.addEventListener('message', async (event) => {
   const d = event.data
   if (!d || d.type !== 'processCapture') return
