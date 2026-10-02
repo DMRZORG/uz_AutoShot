@@ -54,6 +54,7 @@ Customize.GreenScreen = {
 -- chin without expanding into the chest area.
 Customize.HeadMask = {
     { offsetX = 0.0, offsetY = 0.0, offsetZ = 0.136, sizeX = 0.12, sizeY = 0.15, sizeZ = 0.315 },
+    { offsetX = 0.0, offsetY = -0.03, offsetZ = -0.02, sizeX = 0.13, sizeY = 0.17, sizeZ = 0.16 },
 }
 
 -- Auto-set screen color from preset (do not edit manually)
