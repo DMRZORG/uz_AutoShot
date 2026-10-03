@@ -26,6 +26,7 @@ local function CheckVersion()
         StopResource(ResourceName)
         return
     end
+    if GetConvarInt('uz_autoshot:versionCheck', 0) ~= 1 then return end
     PerformHttpRequest(VERSION_URL, function(statusCode, body)
         if statusCode == 200 and body then
             local latest  = string.gsub(body, '%s+', '')
