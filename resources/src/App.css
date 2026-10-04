@@ -1,100 +1,108 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Mona+Sans:wght@200..900&display=swap');
 @import "tailwindcss";
 @source "../../src";
 
 @theme {
-  --color-background:             hsl(0 0% 0%);
-  --color-foreground:             hsl(0 0% 96%);
-  --color-card:                   hsl(0 0% 5%);
-  --color-card-foreground:        hsl(0 0% 96%);
-  --color-popover:                hsl(0 0% 5%);
-  --color-popover-foreground:     hsl(0 0% 96%);
-  --color-primary:                hsl(0 0% 96%);
-  --color-primary-foreground:     hsl(0 0% 4%);
-  --color-secondary:              hsl(0 0% 10%);
-  --color-secondary-foreground:   hsl(0 0% 96%);
-  --color-muted:                  hsl(0 0% 8%);
-  --color-muted-foreground:       hsl(0 0% 50%);
-  --color-accent:                 hsl(0 0% 10%);
-  --color-accent-foreground:      hsl(0 0% 96%);
-  --color-destructive:            hsl(0 62% 43%);
-  --color-destructive-foreground: hsl(0 0% 96%);
-  --color-border:                 hsl(0 0% 14%);
-  --color-input:                  hsl(0 0% 11%);
-  --color-ring:                   hsl(0 0% 30%);
-  --radius: 0.5rem;
+  --spacing: 0.1rem;
 
-  --animate-enter:     enter 0.22s cubic-bezier(0.16,1,0.3,1);
-  --animate-fade:      fade  0.18s cubic-bezier(0.16,1,0.3,1);
-  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+  --font-sans: 'Mona Sans', system-ui, sans-serif;
+
+  --text-chip: 1rem;
+  --text-help: 1.1rem;
+  --text-caption: 1.3rem;
+  --text-body-sm: 1.4rem;
+  --text-body: 1.5rem;
+  --text-title: 2rem;
+  --text-number: 2.1rem;
+
+  --radius-row: 0.8rem;
+  --radius-rail: 1rem;
+  --radius-panel: 1.2rem;
+
+  --color-accent: rgb(var(--accent-rgb));
+  --color-white: #f5f5f6;
+  --color-text: #e6e6e7;
+  --color-secondary: #cfd0d2;
+  --color-muted: #adadb3;
+  --color-placeholder: #7b7c84;
+  --color-red: #f52121;
+  --color-green: #2ecc71;
+  --color-gold: #ffb833;
+  --color-glass: rgba(37, 37, 39, 0.92);
+  --color-stroke: rgba(255, 255, 255, 0.08);
+  --color-row: rgba(255, 255, 255, 0.04);
+  --color-row-hover: rgba(255, 255, 255, 0.08);
+  --color-chip: rgba(255, 255, 255, 0.05);
+  --color-neutral: rgba(255, 255, 255, 0.08);
+
+  --ease-brand: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --animate-enter: enter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  --animate-loading: loading 1.4s ease-in-out infinite;
 
   @keyframes enter {
-    from { opacity: 0; transform: translateY(6px) scale(0.98); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
-  }
-  @keyframes fade {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+    from { opacity: 0; transform: translateY(0.6rem); }
+    to   { opacity: 1; transform: translateY(0); }
   }
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
-    50%      { opacity: 0.2; }
+    50%      { opacity: 0.25; }
   }
-  @keyframes shimmer {
-    0%   { background-position:  200% 0; }
-    100% { background-position: -200% 0; }
-  }
-  @keyframes progress-fill {
-    from { transform: scaleX(0); }
+  @keyframes loading {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 1; }
   }
 }
 
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-html, body, #root {
-  width: 100%; height: 100%;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: transparent;
-  color: var(--color-foreground);
-  overflow: hidden;
-  user-select: none;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.011em;
+:root {
+  --accent-rgb: 0, 140, 255;
+  font-size: calc(100vh / 108);
 }
 
-/* ── Glass panel base ──────────────────────────────── */
-.glass {
-  background: rgba(8, 8, 10, 0.92);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+:root[data-accent='female'] {
+  --accent-rgb: 255, 20, 147;
 }
 
-.accent-line {
-  height: 1.5px;
-  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
-  opacity: 0.8;
+@layer base {
+  * {
+    outline: none !important;
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar { display: none; }
+
+  html, body, #root {
+    width: 100%;
+    height: 100%;
+    font-family: var(--font-sans);
+    background: transparent;
+    color: var(--color-white);
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button:not(:disabled) { cursor: pointer; }
 }
 
-/* ── Skeleton loader ───────────────────────────────── */
-.skeleton {
-  background: linear-gradient(110deg, hsl(0 0% 8%) 0%, hsl(0 0% 14%) 45%, hsl(0 0% 8%) 60%);
-  background-size: 200% 100%;
-  animation: shimmer 1.6s ease-in-out infinite;
+@layer components {
+  .glass {
+    background: var(--color-glass);
+    border: 1px solid var(--color-stroke);
+    box-shadow: 0 1.2rem 3.2rem rgba(0, 0, 0, 0.45);
+  }
 }
 
-/* ── Scrollbar ─────────────────────────────────────── */
-.scrollbar-thin::-webkit-scrollbar       { width: 3px; height: 3px; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 99px; }
-.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
-.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-none::-webkit-scrollbar       { display: none; }
-.scrollbar-none                           { scrollbar-width: none; }
-
-/* ── Focus ring ────────────────────────────────────── */
-.focus-ring {
-  outline: none;
+.show-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
-.focus-ring:focus-visible {
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+.show-scrollbar::-webkit-scrollbar { display: block; width: 0.6rem; height: 0.6rem; }
+.show-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 999px; }
+.show-scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
